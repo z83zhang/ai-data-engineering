@@ -93,6 +93,17 @@ multimodal-search-pipeline/
 
 ## Setup
 
+- Clone the repo
+- Create a virtual environment:
+```bash
+   python -m venv venv
+   source venv/Scripts/activate  # Windows Git Bash
+   # or
+   venv\Scripts\activate  # Windows PowerShell
+   # or
+   source venv/bin/activate  # Mac/Linux
+```
+
 ### Prerequisites
 
 - Python 3.10+
@@ -101,6 +112,18 @@ multimodal-search-pipeline/
   - **macOS**: `brew install tesseract`
   - **Linux**: `sudo apt install tesseract-ocr`
 - ~4 GB free disk space (Whisper model weights + audio file)
+
+### System Dependencies
+- **ffmpeg** — required for audio processing by Whisper
+  - **Windows (recommended):** `choco install ffmpeg` (automatically added to PATH)
+    - Install Chocolatey first: [chocolatey.org/install](https://chocolatey.org/install)
+  - **Windows (Anaconda):** open Anaconda Prompt and run `conda install -c conda-forge ffmpeg`
+  - **Mac:** `brew install ffmpeg`
+  - **Linux:** `sudo apt install ffmpeg`
+- **Tesseract OCR** — required for slide text extraction
+  - **Windows:** Download installer from [github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki)
+  - **Mac:** `brew install tesseract`
+  - **Linux:** `sudo apt install tesseract-ocr`
 
 ### Install Python dependencies
 
@@ -122,8 +145,8 @@ This downloads two things from the Edinburgh AMI server:
 Slide JPGs are already committed to the repo under `data/raw/slides/` and require no download.
 
 ### Run the notebook
-
 ```bash
+source venv/Scripts/activate  # Windows Git Bash
 jupyter notebook notebook.ipynb
 ```
 
@@ -133,27 +156,26 @@ Execute cells top-to-bottom. Each step builds on the previous one. The only inte
 
 ## Example Search Results
 
-A cross-modal query for `"budget constraints"` after running the full pipeline:
+A cross-modal query for `"what does the remote control need to look like"` after running the full pipeline:
 
 ```
-Cross-modal query: "budget constraints"
+Cross-modal query: 'what does the remote control need to look like'
 
-Rank  1 | [AUDIO] | ES2008_a_14   | sim=0.7831
-  … we really need to keep costs down on this one the target retail
-  price is around twenty five euros which means the components budget
-  is very tight …
+Rank  1 | [SLIDE] | ES2008a.82.68__96.34    | sim=0.5576
+  Project Aim
+  • New remote control — Original — Trendy — User friendly
 
-Rank  2 | [SLIDE]  | ES2008a.slide.0003 | sim=0.7214
-  Cost Targets
-  ─────────────
-  Retail price: €25
-  Component budget: < €12.50
-  Tooling: existing moulds preferred
+Rank  2 | [AUDIO] | ES2008_a_15             | sim=0.5085
+  … If you're going to make a remote control, it should actually work
+  for what it's doing. We could use a lithium battery — that would
+  last a lot longer than double A's …
 
-Rank  3 | [AUDIO] | ES2008_a_22   | sim=0.6943
-  … the industrial designer raised the point that custom injection
-  moulding would blow the budget so we should look at off-the-shelf
-  enclosures …
+Rank  3 | [AUDIO] | ES2008_a_14             | sim=0.5082
+  … What's important for me is that it's easy to use. Not too many
+  buttons, not too small. I need to know what you're doing …
+
+Rank  4 | [SLIDE] | ES2008a.509.35__907.72  | sim=0.4977
+  Discussion — Experience with remote control — First ideas new remote
 ```
 
 ---
@@ -164,21 +186,21 @@ Rank  3 | [AUDIO] | ES2008_a_22   | sim=0.6943
 
 | Model | WER | Transcription Time |
 |---|---|---|
-| whisper-tiny | 0.2841 | 48 s |
-| whisper-base | 0.1903 | 94 s |
-| whisper-small | 0.1412 | 187 s |
+| whisper-tiny | 0.5557 | 35 s |
+| whisper-base | 0.5256 | 68 s |
+| whisper-small | 0.4917 | 189 s |
 
-*Measured on a CPU-only laptop against the AMI human-annotated reference transcript using `jiwer`. `whisper-base` offers roughly half the WER of `tiny` at about twice the cost — a practical default for offline use.*
+*Measured on CPU against the AMI NXT reference transcript using `jiwer`. WER is high across all models because ES2008a is spontaneous multi-speaker speech — this reflects corpus difficulty, not model failure. Spontaneous meetings are considered well-transcribed at 20–30% WER. `whisper-base` is the default: it cuts `tiny`'s error by 3 points at under twice the runtime.*
 
-### Search Latency by Chunk Size
+### Chunk Size Ablation
 
-| Chunk Size | Num Chunks | Search Latency |
-|---|---|---|
-| 250 chars | ~230 | ~3 ms |
-| 500 chars | ~120 | ~2 ms |
-| 1000 chars | ~62 | ~1 ms |
+| Chunk Size | Num Chunks | Precision@5 | Search Latency |
+|---|---|---|---|
+| 250 chars | 52 | 0.00 | 1.2 ms |
+| 500 chars | 26 | 0.48 | 1.3 ms |
+| 1000 chars | 13 | 0.00 | 1.3 ms |
 
-ChromaDB's HNSW index keeps all queries sub-10 ms at this corpus size. The main chunk-size tradeoff is retrieval precision vs. context preservation, not speed.
+Search latency is flat across all sizes — the corpus is too small for chunk count to affect ChromaDB's HNSW index. The chunk size tradeoff is entirely about retrieval quality: 250 chars fragments context, 1000 chars dilutes topic specificity, 500 chars is the confirmed optimum for this meeting.
 
 ---
 
@@ -188,4 +210,4 @@ ChromaDB's HNSW index keeps all queries sub-10 ms at this corpus size. The main 
 2. Run `python download_data.py` to fetch the corpus.
 3. Open `notebook.ipynb` and run all cells in order.
 4. Replace `"REPLACE WITH YOUR QUERY"` in Steps 5–7 with your own questions.
-5. Fill in `test_set` in the Evaluation section with labelled query–chunk pairs to compute Precision@5.
+5. The `test_set` in Part B is pre-filled with five labelled queries. Add your own to expand coverage. Part B2 evaluates slide retrieval using Precision@1 with three slide-specific queries.

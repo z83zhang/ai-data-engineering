@@ -12,7 +12,7 @@ Deliverables: `notebook.ipynb`, `download_data.py`, `requirements.txt`, `README.
 
 ```
 multimodal-search-pipeline/
-├── notebook.ipynb          ← 25-cell pipeline notebook
+├── notebook.ipynb          ← 29-cell pipeline notebook
 ├── download_data.py        ← Downloads audio + transcript only
 ├── requirements.txt
 ├── .env.example
@@ -80,9 +80,12 @@ slide JPGs  →  Tesseract OCR  →  slide text         ↓
 - Two separate ChromaDB collections so audio and slide modalities can be queried independently or merged.
 
 ### Evaluation
-- **WER**: `jiwer` against the AMI human transcript. `parse_ami_reference()` in the notebook handles both the downloaded `.transcript.txt` fast path and raw NXT `.words.xml` files.
-- **Precision@5**: placeholder `test_set` list with empty queries/relevant-chunks — user fills in after running the pipeline.
-- **Timing**: `step_times` dict populated with `time.time()` deltas around each pipeline step.
+- **WER** (Part A): `jiwer` against the AMI human transcript. `parse_ami_reference()` handles both the downloaded `ES2008a.transcript.txt` fast path and raw NXT `.words.xml` files. Compares whisper-tiny, base, small.
+- **Precision@5** (Part B): `test_set` has five labelled queries with ground-truth chunk IDs. Mean P@5 = 0.48 on the current run.
+- **Precision@1** (Part B2): slide-specific evaluation using three queries against `slides_ocr`. Relevant answers are slide IDs (filename stems without `.jpg`). Mean P@1 = 1.00 on the current run.
+- **Timing** (Part C): `step_times` dict populated with `time.time()` deltas. Transcription dominates at ~70 s; search is <15 ms.
+- **Chunk size ablation** (Part D): reruns chunking and search at 250 / 500 / 1000 chars using ephemeral ChromaDB. 500 chars confirmed optimal.
+- **Step 9**: prose evaluation summary with interpretation of all results, metric limitations, and suggested improvements (MRR, hybrid BM25+semantic search).
 
 ### Windows-specific notes
 - Tesseract path override: set `TESSERACT_CMD` in `.env` if the executable is not on PATH.
