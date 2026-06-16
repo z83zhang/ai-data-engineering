@@ -47,6 +47,13 @@ Sample data: meeting **ES2008a** from the [AMI Meeting Corpus](https://groups.in
 │                          │   Cross-Modal + Video Search        │  │
 │                          │  time-filter · semantic similarity  │  │
 │                          │  topic-time aggregation             │  │
+│                          └────────────────┬───────────────────┘  │
+│                                           │                      │
+│                          ┌────────────────▼───────────────────┐  │
+│                          │   Multimodal RAG  (Extension 2)     │  │
+│                          │  top-3 per collection, 2,000-token  │  │
+│                          │  budget · Claude Haiku generates    │  │
+│                          │  grounded answers + citations       │  │
 │                          └────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -66,6 +73,7 @@ Sample data: meeting **ES2008a** from the [AMI Meeting Corpus](https://groups.in
 | Runtime | Python 3.10+ | Core pipeline runs locally — no API keys needed for Steps 1–9 |
 | Topic segmentation | `xml.etree.ElementTree` + regex | AMI NXT words XML → timestamped topic segments (Extension 1) |
 | Segment summarisation | [Anthropic](https://www.anthropic.com/) `claude-haiku-4-5-20251001` | 2-3 sentence descriptions for video segments — **Extension 1 only**, requires `ANTHROPIC_API_KEY` |
+| Multimodal RAG | [Anthropic](https://www.anthropic.com/) `claude-haiku-4-5-20251001` | Grounded answer generation with inline source citations — **Extension 2 only**, requires `ANTHROPIC_API_KEY` |
 
 ---
 
@@ -261,3 +269,40 @@ The key is only read in the Extension 1 cells. Steps 1–9 of the main pipeline 
 ### Production design (documented in notebook)
 
 A production implementation would sample the meeting video at **0.25 FPS** (~375 frames) and submit each frame to a VLM with a structured JSON prompt. The job runs as a **4-GPU container**, reading video from cloud storage and writing to a database table.
+
+---
+
+## Extension 2 — Multimodal RAG
+
+Extension 2 adds retrieval-augmented generation on top of the three existing ChromaDB collections, producing grounded natural-language answers with traceable source citations. It builds directly on the collections populated in Steps 4–5 and Extension 1 — no re-indexing required.
+
+### How it works
+
+`multimodal_rag()` (cells 37–38) runs in three stages:
+
+1. **Retrieve** — queries `transcript_chunks`, `slides_ocr`, and `video_segments` for the top 3 results each, giving up to 9 candidates per call.
+2. **Rank and budget** — sorts all candidates by cosine similarity and fills a context block greedily until the 2,000-token ceiling (~8,000 characters) is reached. Each snippet is labelled with its type, ChromaDB ID, and similarity score. The last snippet is trimmed to fit rather than dropped, so the budget is never wasted.
+3. **Generate** — calls `claude-haiku-4-5-20251001` with a system prompt that restricts the model to the retrieved context only and requires inline citations matching ChromaDB IDs.
+
+### Citation format
+
+Every claim in the generated answer is attributed to a specific retrieved document:
+
+```
+[TRANSCRIPT | ES2008_a_14]   ← transcript chunk
+[SLIDE | ES2008a.82.68__96.34]   ← slide OCR result
+[VIDEO | ES2008a_vseg_02]   ← video segment
+```
+
+### API key requirement
+
+Extension 2 uses the same `ANTHROPIC_API_KEY` as Extension 1. Add it to `.env` — it is read automatically. Steps 1–9 and the base search cells run entirely without it.
+
+### Limitations
+
+| Limitation | Detail |
+|---|---|
+| **Temporal comparison queries** | Transcript chunks carry no timestamps (stripped during chunking); the LLM cannot reliably calculate durations from 3 retrieved video segments; and technical vs. aesthetic topics are interleaved throughout the meeting rather than in distinct blocks. For *how long* queries, run `aggregate_topic_time()` per topic first (Extension 1), then pass the structured `{topic, total_minutes}` results as context into `multimodal_rag()` for synthesis. |
+| **Single-turn only** | Each `multimodal_rag()` call is stateless — no conversation history. Follow-up questions cannot refer to a previous answer. |
+| **No re-ranking** | Candidates are ranked by bi-encoder cosine similarity only. A cross-encoder re-ranker (e.g. `ms-marco-MiniLM-L-6-v2`) would improve precision on longer or more complex queries. |
+| **Small corpus** | One 25-minute session limits contrastive retrieval — every query returns something semantically close simply because there is little else in the index. |
