@@ -68,3 +68,35 @@
 > - `.env.example` — template for any environment variables
 >
 > **Tech stack:** Python, Whisper, Tesseract, sentence-transformers (all-MiniLM-L6-v2), ChromaDB, pandas, jiwer
+>
+> Add Extension 1 — Video Analysis to the notebook after the evaluation summary. Do not modify any existing cells.
+>
+> 1. Add a markdown cell that clearly distinguishes two things:
+>
+>    **Production VLM Design Specification** — document what a real implementation would look like:
+>    - FPS=0.25 (1 frame every 4 seconds) generating ~375 frames for a 25-minute meeting, balancing coverage of meaningful visual changes against redundancy of near-identical consecutive frames
+>    - Prompt engineering for structured JSON output: 'Analyze this meeting video and identify 5-10 major segments or phases. For each segment, describe what is happening visually and what topic is being discussed. Provide 2-3 sentences of detail per segment. Return as a JSON array with objects containing start_time (hh:mm:ss), end_time (hh:mm:ss), and description fields'
+>    - Similarity threshold of 0.3 for time-filtered search and 0.7 for time-based aggregation, with explanation of why these thresholds differ
+>    - Production deployment: 4 GPU container job, shared memory volume for GPU inter-process communication, video read from cloud storage, results written to database table
+>
+>    **What this notebook actually does** — be transparent:
+>    - Instead of running a VLM, topic segmentation is derived from AMI word-level timestamp annotations (ES2008a.A/B/C/D.words.xml files in NXT XML format) combined with the transcript text
+>    - The XML files provide accurate word-level start and end times in seconds for all four speakers, enabling precise segment timestamps rather than approximations
+>    - Topic boundaries are detected by combining timestamp data with conversational cue detection in the transcript
+>    - Frame it as: 'In production this would be implemented as a VLM container job. For this portfolio demonstration, I derive accurate topic segments from AMI word-level timestamp annotations as a transparent and realistic substitute'
+>
+> 2. Parse all four AMI words XML files from `data/raw/amicorpus/ES2008a/words/` (ES2008a.A.words.xml, ES2008a.B.words.xml, ES2008a.C.words.xml, ES2008a.D.words.xml) using Python's `xml.etree.ElementTree`. Extract all `<w>` elements with their `starttime`, `endtime`, and text content. Merge words from all four speakers sorted by starttime to reconstruct the full timestamped transcript.
+>
+> 3. Detect 5-10 topic boundaries using conversational cues in the merged transcript (e.g. 'moving on', 'okay', 'first of all', 'next'). Use the word timestamps to assign accurate start_time and end_time in hh:mm:ss format to each segment. Write a 2-3 sentence description for each segment summarizing the main topic and activity. Store in a DataFrame with columns: meeting_id, meeting_part, start_time, end_time, description.
+>
+> 4. Add segment duration analysis showing: segment count, average segment duration in seconds, and total duration covered. Display description previews at 100 characters.
+>
+> 5. Save to `data/raw/video/ES2008a_video_analysis.json`
+>
+> 6. Embed descriptions using `all-MiniLM-L6-v2` and store in ChromaDB as a third collection `video_segments`
+>
+> 7. Add Time + Semantic Search: filter video segments by timestamp range AND semantic similarity threshold of 0.3. Example query: 'find segments about project goals in the first 5 minutes'
+>
+> 8. Add Time-Based Aggregation: sum total duration of segments above similarity threshold 0.7 for a given query. Return total minutes spent on that topic and segment count.
+>
+> After implementing, review and update README and CLAUDE.md accordingly.
