@@ -12,7 +12,7 @@ Deliverables: `notebook.ipynb`, `download_data.py`, `requirements.txt`, `README.
 
 ```
 multimodal-search-pipeline/
-├── notebook.ipynb          ← 35-cell pipeline notebook (Steps 1–9 + Extension 1)
+├── notebook.ipynb          ← 39-cell pipeline notebook (Steps 1–9 + Extensions 1–2)
 ├── download_data.py        ← Downloads audio + transcript only
 ├── requirements.txt
 ├── .env.example
@@ -42,6 +42,7 @@ multimodal-search-pipeline/
 | Embeddings | `sentence-transformers` `all-MiniLM-L6-v2` | 384-d, fast, good general quality |
 | Vector store | `chromadb` cosine similarity | Three collections: `transcript_chunks`, `slides_ocr`, `video_segments` |
 | Segment summarisation | `anthropic` `claude-haiku-4-5-20251001` | Generates 2-3 sentence descriptions for video segments; requires `ANTHROPIC_API_KEY` |
+| RAG generation | `anthropic` `claude-haiku-4-5-20251001` | Synthesises grounded answers with source citations from retrieved context; requires `ANTHROPIC_API_KEY` |
 | WER | `jiwer` | Compared against reference transcript |
 | Data | `pandas`, `numpy` | DataFrames for transcription and OCR results |
 
@@ -66,6 +67,10 @@ slide JPGs  →  Tesseract OCR  →  slide text         ↓
                                                     ↓
                               cross-modal search · time-filtered search
                                          · topic-time aggregation
+                                                    ↓
+                                    multimodal_rag()  →  Claude Haiku
+                                    (top-3 per collection, 2,000-token
+                                     budget, inline source citations)
 ```
 
 ---
@@ -106,12 +111,21 @@ slide JPGs  →  Tesseract OCR  →  slide text         ↓
 - **Time-Based Aggregation**: `aggregate_topic_time()` — similarity ≥ 0.7 threshold (strict; counts only predominantly on-topic segments). Returns `total_minutes` and `segment_count`.
 - **Production design** (in markdown cell): 0.25 FPS, ~375 frames, structured JSON VLM prompt, 4-GPU container, `/dev/shm` inter-process communication.
 
+### Extension 2 — Multimodal RAG
+- **Cells**: 36 (markdown), 37 (`multimodal_rag()` + `print_rag_result()`), 38 (demo queries).
+- **Retrieval**: `multimodal_rag()` queries all three ChromaDB collections (`transcript_chunks`, `slides_ocr`, `video_segments`) for `top_k=3` results each — up to 9 candidates per call. Candidates are ranked by cosine similarity; context is filled greedily until the `2,000 * 4 = 8,000` character budget is exhausted, trimming the last entry rather than dropping it.
+- **Prompt structure**: each snippet is prefixed with `[TYPE | id | sim=0.xxx]` plus any available metadata (video timestamps, slide filename). The system prompt restricts the model to the retrieved context only and requires inline citations matching ChromaDB IDs.
+- **Claude call**: `claude-haiku-4-5-20251001`, `max_tokens=300`, `answer_max_tokens` is a parameter. A fresh `_anthropic.Anthropic()` client is instantiated per call inside the function (reads `ANTHROPIC_API_KEY` from environment).
+- **Return value**: `{query, answer, sources (list of dicts with source_type/id/text/metadata/similarity), token_usage}`.
+- **Temporal comparison limitation**: transcript chunks do not carry timestamps (stripped during chunking); the LLM cannot calculate durations from video timestamps with only 3 segments in context; and technical/aesthetic topics are interleaved throughout the meeting. For time-based comparisons, run `aggregate_topic_time()` (Extension 1) per topic first, then pass structured `{topic, total_minutes}` results into `multimodal_rag()` for synthesis.
+- **Other limitations**: single-meeting corpus limits contrastive retrieval; no conversation history (each call is independent); no cross-encoder re-ranking.
+
 ### API key usage policy
-- **Do not use `ANTHROPIC_API_KEY` or call the Anthropic API unless the user explicitly asks.** Extension 1 cells are the only place in the notebook that call Claude; all other steps run fully locally.
-- When a user asks for help with Extension 1, remind them the key is required and confirm they want to proceed before running any cells that invoke the API.
+- **Do not use `ANTHROPIC_API_KEY` or call the Anthropic API unless the user explicitly asks.** Extension 1 and Extension 2 cells are the only places in the notebook that call Claude; all other steps run fully locally.
+- When a user asks for help with Extension 1 or Extension 2, remind them the key is required and confirm they want to proceed before running any cells that invoke the API.
 - Never log, print, or expose the key value in output.
 
 ### Windows-specific notes
 - Tesseract path override: set `TESSERACT_CMD` in `.env` if the executable is not on PATH.
 - The Edinburgh server requires `Connection: close` in request headers; keep-alive causes aborted connections on large file GETs.
-- Extension 1 requires `ANTHROPIC_API_KEY` in the environment (or `.env`). Without it the `_anthropic.Anthropic()` constructor raises `AuthenticationError` before any segment is processed.
+- Extensions 1 and 2 both require `ANTHROPIC_API_KEY` in the environment (or `.env`). Without it the `_anthropic.Anthropic()` constructor raises `AuthenticationError` before any API call is attempted.
