@@ -100,3 +100,24 @@
 > 8. Add Time-Based Aggregation: sum total duration of segments above similarity threshold 0.7 for a given query. Return total minutes spent on that topic and segment count.
 >
 > After implementing, review and update README and CLAUDE.md accordingly.
+>
+
+**Extension 2:**
+
+**Query 1 — Core RAG function:**
+> Add a `multimodal_rag()` function to the notebook after Extension 1 that retrieves top 3 results from each of the three ChromaDB collections (transcript_chunks, slides_ocr, video_segments), manages context within a token budget, and calls Claude claude-haiku-4-5-20251001 via the Anthropic API to generate a grounded answer with source citations (AUDIO/SLIDE/VIDEO + chunk_id). Add a markdown cell explaining what RAG adds beyond retrieval.
+
+**Query 2 — Run example queries:**
+> Run these 3 queries through the multimodal_rag() function and display the retrieved sources and generated answers: 'What were the main decisions made in this meeting?', 'What are the product requirements for the remote control?', 'How much time was spent discussing the budget?'
+
+**Query 3 — Evaluation + README:**
+Here's the concise version:
+
+> Update the RAG evaluation markdown cell in Extension 2 with these additions — do not change any code cells:
+>
+> 1. Add a section explaining why temporal comparison queries ('time spent on X vs Y') cannot be fully answered by RAG alone, covering: transcript chunks lose timestamps during chunking; the LLM sees video timestamps but doesn't calculate durations; and technical vs aesthetic topics are interleaved throughout the meeting rather than in distinct blocks
+>
+> 2. Add a production pattern note: for time-based comparison queries, run Extension 1's time-based aggregation separately per topic first, then pass the structured duration results as context to RAG for synthesis
+>
+> 3. Keep existing limitation points about small corpus, single meeting, and no conversation history
+>
