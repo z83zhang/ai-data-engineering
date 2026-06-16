@@ -84,7 +84,7 @@ multimodal-search-pipeline/
 │       ├── audio/          ← ES2008a.Mix-Headset.wav  [downloaded by download_data.py]
 │       ├── slides/         ← ES2008a slide JPGs       [committed to repo]
 │       ├── transcripts/    ← ES2008a.transcript.txt   [downloaded by download_data.py]
-│       ├── words/          ← ES2008a.A/B/C/D.words.xml  [AMI NXT annotations]
+│       ├── words/          ← ES2008a.A/B/C/D.words.xml  [committed to repo]
 │       └── video/          ← ES2008a_video_analysis.json  [auto-created by notebook]
 │
 └── chroma_db/              ← Persistent ChromaDB storage (auto-created by notebook)
@@ -98,6 +98,7 @@ multimodal-search-pipeline/
 | `data/raw/audio/ES2008a.Mix-Headset.wav` | [AMI corpus mirror](https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2008a/audio/) | `python download_data.py` |
 | `data/raw/slides/*.jpg` | Committed to this repo | Already present — no download needed |
 | `data/raw/transcripts/ES2008a.transcript.txt` | Extracted from [AMI annotations zip](https://groups.inf.ed.ac.uk/ami/AMICorpusAnnotations/ami_public_manual_1.6.2.zip) | `python download_data.py` |
+| `data/raw/words/ES2008a.{A,B,C,D}.words.xml` | Committed to this repo | Already present — no download needed |
 
 ---
 
