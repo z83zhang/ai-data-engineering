@@ -23,6 +23,10 @@ Sample data: meeting **ES2008a** from the [AMI Meeting Corpus](https://groups.in
 │  │  (N slides)  │   --psm 1 layout   │   slides_df  +          │ │
 │  └──────────────┘                    │   chunks_df             │ │
 │                                      └────────────┬────────────┘ │
+│  ┌──────────────┐   NXT XML parse                 │              │
+│  │ *.words.xml  │ ─────────────────► ┌────────────▼────────────┐ │
+│  │  (4 speakers)│   cue detection    │   video_df  (segments)  │ │
+│  └──────────────┘                    └────────────┬────────────┘ │
 │                                                   │              │
 │                              sentence-transformers│              │
 │                              all-MiniLM-L6-v2     │              │
@@ -34,14 +38,15 @@ Sample data: meeting **ES2008a** from the [AMI Meeting Corpus](https://groups.in
 │                          │  │  chunks  (cosine space)       │  │  │
 │                          │  ├──────────────────────────────┤  │  │
 │                          │  │  collection: slides_ocr       │  │  │
-│                          │  │  (cosine space)               │  │  │
+│                          │  ├──────────────────────────────┤  │  │
+│                          │  │  collection: video_segments   │  │  │
 │                          │  └──────────────────────────────┘  │  │
 │                          └────────────────┬───────────────────┘  │
 │                                           │                      │
 │                          ┌────────────────▼───────────────────┐  │
-│                          │      Cross-Modal Search             │  │
-│                          │  query → embed → query both cols    │  │
-│                          │  → merge + rank by cosine sim       │  │
+│                          │   Cross-Modal + Video Search        │  │
+│                          │  time-filter · semantic similarity  │  │
+│                          │  topic-time aggregation             │  │
 │                          └────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -58,7 +63,9 @@ Sample data: meeting **ES2008a** from the [AMI Meeting Corpus](https://groups.in
 | Vector store | [ChromaDB](https://www.trychroma.com/) | Persistent local collections with cosine ANN |
 | WER evaluation | [jiwer](https://github.com/jitsi/jiwer) | Word Error Rate vs. AMI reference transcript |
 | Data wrangling | pandas, numpy | DataFrames for transcription and OCR results |
-| Runtime | Python 3.10+ | All inference runs locally — no API keys needed |
+| Runtime | Python 3.10+ | Core pipeline runs locally — no API keys needed for Steps 1–9 |
+| Topic segmentation | `xml.etree.ElementTree` + regex | AMI NXT words XML → timestamped topic segments (Extension 1) |
+| Segment summarisation | [Anthropic](https://www.anthropic.com/) `claude-haiku-4-5-20251001` | 2-3 sentence descriptions for video segments — **Extension 1 only**, requires `ANTHROPIC_API_KEY` |
 
 ---
 
@@ -76,9 +83,12 @@ multimodal-search-pipeline/
 │   └── raw/
 │       ├── audio/          ← ES2008a.Mix-Headset.wav  [downloaded by download_data.py]
 │       ├── slides/         ← ES2008a slide JPGs       [committed to repo]
-│       └── transcripts/    ← ES2008a.transcript.txt   [downloaded by download_data.py]
+│       ├── transcripts/    ← ES2008a.transcript.txt   [downloaded by download_data.py]
+│       ├── words/          ← ES2008a.A/B/C/D.words.xml  [AMI NXT annotations]
+│       └── video/          ← ES2008a_video_analysis.json  [auto-created by notebook]
 │
 └── chroma_db/              ← Persistent ChromaDB storage (auto-created by notebook)
+                               Three collections: transcript_chunks · slides_ocr · video_segments
 ```
 
 ### Where the raw data lives
@@ -211,3 +221,42 @@ Search latency is flat across all sizes — the corpus is too small for chunk co
 3. Open `notebook.ipynb` and run all cells in order.
 4. Replace `"REPLACE WITH YOUR QUERY"` in Steps 5–7 with your own questions.
 5. The `test_set` in Part B is pre-filled with five labelled queries. Add your own to expand coverage. Part B2 evaluates slide retrieval using Precision@1 with three slide-specific queries.
+
+---
+
+## Extension 1 — Video Analysis
+
+Extension 1 adds a third ChromaDB collection (`video_segments`) and two new search modes.
+
+### How it works
+
+The four AMI NXT words XML files (`ES2008a.A/B/C/D.words.xml`) provide word-level `starttime` and `endtime` in seconds for all speakers. The notebook:
+
+1. Parses all four files with `xml.etree.ElementTree`, skips punctuation and non-lexical tokens, and sorts all words chronologically into a single merged transcript.
+2. Searches the joined text for conversational cue phrases ("moving on", "first of all", "Okay so", etc.) to detect 5–10 topic boundaries.
+3. Maps each boundary character position back to its word's exact timestamp using a binary-search index — no proportional estimation.
+4. Builds a `video_df` DataFrame and saves `data/raw/video/ES2008a_video_analysis.json`.
+5. Embeds segment descriptions with `all-MiniLM-L6-v2` into the `video_segments` ChromaDB collection.
+
+### New search capabilities
+
+| Mode | Description | Threshold |
+|---|---|---|
+| **Time + Semantic Search** | Segments overlapping a timestamp window **and** meeting a similarity floor | 0.3 |
+| **Time-Based Aggregation** | Sum total duration of segments above a strict similarity threshold | 0.7 |
+
+The lower threshold (0.3) for time-filtered search is intentional: the timestamp window already narrows candidates, so a permissive floor avoids missing loosely relevant segments. The higher threshold (0.7) for aggregation counts only time spent *predominantly* on a topic.
+
+### API key requirement
+
+Extension 1 calls the Anthropic API to generate segment descriptions. Add your key to a `.env` file (never commit it):
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The key is only read in the Extension 1 cells. Steps 1–9 of the main pipeline run entirely locally and do not require it.
+
+### Production design (documented in notebook)
+
+A production implementation would sample the meeting video at **0.25 FPS** (~375 frames) and submit each frame to a VLM with a structured JSON prompt. The job runs as a **4-GPU container**, reading video from cloud storage and writing to a database table.
