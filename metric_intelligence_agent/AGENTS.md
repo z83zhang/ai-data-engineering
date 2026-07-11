@@ -1,4 +1,4 @@
-# SQL Intelligence Agent
+# Metric Intelligence Agent
 
 ## Project Purpose
 
