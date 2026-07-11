@@ -637,3 +637,178 @@ In run_pipeline(), after generate_sql() returns, add:
     if sql.startswith("OUT_OF_RANGE:"):
         print("⚠️", sql.replace("OUT_OF_RANGE:", "").strip())
         return
+
+## Step 11
+Create two files in sql_intelligence_agent/:
+
+═══════════════════════════════════════
+FILE 1: AGENTS.md
+═══════════════════════════════════════
+
+An AI assistant context file for this project. Infer 
+the following directly from existing files without being 
+told:
+- Stack and environment variables (from requirements.txt 
+  and agent.py)
+- Project structure with one-line descriptions
+- All function signatures, arguments, return types 
+  (from agent.py)
+- Pipeline flow (from main.py)
+- print_failure() helper purpose (from main.py)
+
+Include ONLY the following which cannot be inferred:
+
+Project purpose:
+  A generalized agentic tool that connects to any database
+  schema, ingests company-specific metric definitions, and
+  returns verified SQL answers to non-technical users with
+  a two-layer reflection check. Demo dataset: TPC-H.
+  Target users: analytics engineers (setup), PMs and data
+  scientists (query).
+
+Non-obvious function behaviors:
+  generate_sql(): if the question refers to dates outside
+  the data range, returns a string starting with 
+  OUT_OF_RANGE: instead of SQL. This is a contract with
+  run_pipeline() which must check for this prefix before
+  passing output to run_sql().
+
+  reflect_sql(): the error argument accepts both DuckDB
+  error messages (technical failure) AND semantic failure
+  descriptions from validate_result(). It is not limited
+  to DuckDB errors.
+
+  validate_result(): runs Python checks first (zero rows,
+  all-null columns, negative value warnings), then one LLM
+  semantic check. LLM only called if Python checks pass.
+
+Conventions not visible in code:
+  - All LLM calls use temperature=0 for determinism
+  - No LLM calls inside load_context(), setup_database(),
+    get_date_range(), or run_sql() — ever
+  - Context files are the only thing that changes between
+    company deployments — agent.py never hardcodes 
+    business rules
+  - Never change function signatures without updating ALL
+    callers: load_context, run_sql, reflect_sql,
+    validate_result, explain_result
+  - Always run python main.py to verify changes work
+  - MAX_REFLECTION_ATTEMPTS defaults to 3, configurable
+    via environment variable
+
+Known limitations not in code:
+  - agg_daily_sales and agg_monthly_sales are virtual 
+    tables built at runtime — not in schema.sql
+  - Relative time references ("last year", "recent") are
+    intentionally flagged as out of range — design 
+    decision, not a bug
+  - Semantic validation relies on LLM judgment which may
+    occasionally pass incorrect results
+
+═══════════════════════════════════════
+FILE 2: README.md
+═══════════════════════════════════════
+
+A portfolio-quality README. Include these sections:
+
+1. Project title and one-line description
+
+2. The Problem:
+   At companies with mature data foundations, PMs and data
+   scientists ask questions like "What was DAU last week?"
+   or "What's revenue by region?" These require knowing the
+   schema, metric definitions, and tribal knowledge about
+   which tables to trust. This tool answers them 
+   automatically and checks its own work.
+
+3. How It Works — 5 step flow:
+   - Analytics engineer provides three context files
+   - User asks question in plain English
+   - Agent writes SQL and runs it against the database
+   - If SQL fails or result looks wrong, agent reflects
+     and rewrites automatically up to MAX_ATTEMPTS times
+   - User gets verified answer with plain English 
+     explanation
+
+4. Two-Layer Reflection:
+   Layer 1: Technical — did DuckDB execute without error?
+   Layer 2: Semantic — does the result answer the question?
+   Are values plausible given metric definitions?
+   If either fails, agent rewrites SQL automatically.
+
+5. Real output examples — use these exact outputs:
+
+   Example 1 (successful query):
+
+   User: "What is total revenue by customer region?"
+
+   ✅ Answer verified — 1 attempt(s)
+
+   Result:
+     customer_region       revenue
+   0          AFRICA  4.104594e+09
+   1          EUROPE  4.082607e+09
+   2     MIDDLE EAST  4.172220e+09
+   3            ASIA  4.120877e+09
+   4         AMERICA  4.054775e+09
+
+   Explanation:
+   The Middle East leads with ~$4.17B, followed by Asia
+   at $4.12B. Revenue is net merchandise value after
+   discounts, excluding cancelled orders. Defaulted to
+   customer region since geography was unspecified.
+
+   Example 2 (out-of-range question):
+
+   User: "What was revenue last year?"
+
+   ⚠️ This dataset only contains data from 1992-01-01 to
+   1998-08-02. Your question refers to a time period 
+   outside this range. Please specify a year between 
+   1992 and 1998.
+
+6. Stack:
+   - Python 3.13
+   - DuckDB (in-memory analytics database)
+   - OpenAI gpt-4o
+   - pandas
+
+7. Setup — cover all three terminals:
+
+   Mac/Linux terminal:
+   export OPENAI_API_KEY=your_key_here
+
+   Windows Command Prompt:
+   set OPENAI_API_KEY=your_key_here
+
+   Windows Git Bash:
+   export OPENAI_API_KEY=your_key_here
+
+   Then:
+   git clone https://github.com/z83zhang/ai-data-engineering
+   cd ai-data-engineering/sql_intelligence_agent
+   pip install -r requirements.txt
+   python main.py
+
+8. Generalization:
+   Replace the three context files with your company's own:
+   - table_catalog.md → your data layer documentation
+   - metric_definitions.md → your canonical metric defs
+   - schema.sql → your table schemas
+   Agent code does not change. Only context files do.
+   For dbt users, load_context() can be extended to parse
+   manifest.json and schema.yml directly — the agent
+   interface stays the same.
+
+9. What's Next:
+   - Refactor pipeline into LangGraph with named nodes and
+     explicit conditional routing
+   - Evaluation layer — log all attempts, scored test suite,
+     failure pattern analysis
+   - Direct database connections via connection string
+   - Streamlit UI with setup mode and query mode
+10. Production Extensions:
+    For teams deploying this in a real data environment:
+    - dbt manifest.json ingestion to replace context files
+    - Slack integration for PM self-serve queries
+    - Company wiki URL ingestion for metric definitions

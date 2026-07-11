@@ -1,0 +1,72 @@
+[
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:00:00",
+    "end_time": "00:01:18",
+    "description": "Rose Lindgren, the Project Manager, is presenting the kickoff meeting for a new remote control design project with three key goals: originality, trendiness, and user-friendliness. The activity is a structured presentation and introduction session that includes team icebreakers, tool training, project planning discussion, and a review of project objectives within a 25-minute timeframe."
+  },
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:01:18",
+    "end_time": "00:02:14",
+    "description": "The team is organizing their design project workflow into three phases—functional, conceptual, and detailed design—each consisting of individual work followed by collaborative meetings. Additionally, they are conducting an icebreaker activity where team members introduce themselves, share personal details, and draw their favorite animals as a way to build rapport and get to know each other better."
+  },
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:02:13",
+    "end_time": "00:04:48",
+    "description": "The meeting participants are introducing themselves and sharing their favorite animals by drawing them while discussing the characteristics they appreciate about each animal. This is an icebreaker or team introduction activity where team members are taking turns drawing and explaining their choices, with Alima drawing a turtle and Iain attempting to draw a whale. The activity appears designed to help the project team (which includes an Industrial Designer and User Interface Designer) get to know each other in a casual, creative manner."
+  },
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:04:47",
+    "end_time": "00:07:16",
+    "description": "The group is engaging in an informal brainstorming and sharing activity where participants introduce themselves, discuss animals they find interesting, and attempt to draw or describe those animals. The conversation alternates between casual discussion about animal characteristics (such as deep-sea creatures, seals, and coyotes) and a drawing exercise where participants sketch and provide feedback on each other's artwork."
+  },
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:07:15",
+    "end_time": "00:10:42",
+    "description": "The team is discussing the financial projections and pricing strategy for a new remote control product, targeting a €25 selling price with a €15 million profit goal and a maximum production cost of €12.50 per unit. Following this, they transition into a brainstorming and Q&A session where team members share their personal experiences with remote controls and discuss desired features, pain points, and design improvements for their new product."
+  },
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:10:42",
+    "end_time": "00:12:41",
+    "description": "The group is discussing the design of a universal remote control, specifically debating whether to combine multiple device remotes into one or keep them separate, and exploring battery options for the device. They are engaging in problem-solving and brainstorming, working through conflicting preferences about button layout and functionality by proposing a spatially-organized design that groups controls by device type while keeping frequently-used buttons accessible and complex functions on separate specialized remotes."
+  },
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:12:41",
+    "end_time": "00:13:53",
+    "description": "The team is brainstorming the design of a remote control, debating whether to include a simple primary remote with basic functions (power, channel, volume) alongside a secondary remote with specialized features, and questioning whether the remote should be limited to television-only functions or potentially include video recorder capabilities. This is a design discussion where the group is exploring technical possibilities and constraints for the product, with one team member volunteering to research whether including non-TV functions is feasible."
+  },
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:13:53",
+    "end_time": "00:14:47",
+    "description": "The team is discussing the design scope and features of a remote control device, debating whether it should control only a television or include video recorder functions, and considering user accessibility needs like large buttons for elderly or less coordinated users. This is a brainstorming and planning activity where the group is defining project requirements and exploring design constraints before moving forward."
+  },
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:14:47",
+    "end_time": "00:16:28",
+    "description": "The team is discussing the breakdown of individual responsibilities for an upcoming project, which includes roles such as industrial design, user interface design, and user requirements research, with each team member to receive specific instructions from their personal coach. This segment involves a mix of activity types: presenting the project structure and workflow, clarifying individual tasks, and addressing questions about the next meeting's agenda. The discussion emphasizes that team members will first work independently on their assigned areas before reconvening to collaborate."
+  },
+  {
+    "meeting_id": "ES2008",
+    "meeting_part": "a",
+    "start_time": "00:16:26",
+    "end_time": "00:17:21",
+    "description": "The team is concluding a meeting and discussing follow-up action items, including the distribution of meeting minutes and presentation slides via email. This is a wrap-up activity where participants are confirming their responsibilities and being reminded to monitor company communications for future updates."
+  }
+]
