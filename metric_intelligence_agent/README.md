@@ -99,6 +99,34 @@ Agent code does not change. Only context files do.
 
 For dbt users, `load_context()` can be extended to parse `manifest.json` and `schema.yml` directly. The agent interface stays the same.
 
+## Scaling to Production
+
+This demo uses DuckDB and static context files for portability. A production deployment at a data-mature company would address four layers:
+
+**Context retrieval -- replace static files with live retrieval:**
+
+- RAG over a data catalog (Datahub, Amundsen, Glean) so only the most relevant tables and definitions are passed into each prompt -- keeps context small regardless of data foundation size.
+- Two-step table selection: first identify candidate tables from the catalog, then retrieve their full schema and metric definitions.
+- dbt metrics layer or semantic layer (Cube, Looker) as the canonical source of metric definitions instead of markdown files.
+
+**Query execution -- replace DuckDB with your query engine:**
+
+- Point `run_sql()` at Presto, BigQuery, Snowflake, or Hive.
+- Add pre-execution validation: check for partition filters, prevent full table scans, enforce compute quotas before any query runs.
+- Set query timeouts and return partial results with a warning rather than failing silently on long-running queries.
+
+**Performance -- make it usable at scale:**
+
+- Cache generated SQL and results for common questions -- the same metric question gets asked repeatedly by different PMs.
+- Prefer pre-aggregated tables for speed, already implemented in this demo via `agg_daily_sales` and `agg_monthly_sales`.
+
+**Governance -- required at any regulated or data-mature company:**
+
+- Respect user permissions when selecting tables -- a PM should not be able to query raw logging tables or PII data.
+- Audit log every query: who asked, what SQL ran, what data was returned -- a compliance requirement, not optional.
+
+The agent logic -- reflection loop, semantic validation, plain English explanation -- works the same at any scale. The context, execution, performance, and governance layers are what change.
+
 ## What's Next
 
 - Refactor pipeline into LangGraph with named nodes and explicit conditional routing.
