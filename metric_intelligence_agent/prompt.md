@@ -1,10 +1,10 @@
-# SQL Intelligence Agent Project Prompt
+# Metric Intelligence Agent Project Prompt
 
 ## Step 1
-Create a Python project folder called `sql_intelligence_agent` with the following structure:
+Create a Python project folder called `metric_intelligence_agent` with the following structure:
 
 ```text
-sql_intelligence_agent/
+metric_intelligence_agent/
 |-- context/
 |   |-- table_catalog.md
 |   |-- metric_definitions.md
@@ -407,7 +407,7 @@ If all Layer 1 checks pass, proceed to Layer 2.
 LAYER 2 — LLM semantic check (one call):
 
 System message:
-  "You are a data quality validator for a SQL intelligence agent.
+  "You are a data quality validator for a metric intelligence agent.
    Use the metric definitions and table catalog in the context to
    judge whether the result is correct.
 
@@ -639,7 +639,7 @@ In run_pipeline(), after generate_sql() returns, add:
         return
 
 ## Step 11
-Create two files in sql_intelligence_agent/:
+Create two files in metric_intelligence_agent/:
 
 ═══════════════════════════════════════
 FILE 1: AGENTS.md
@@ -786,7 +786,7 @@ A portfolio-quality README. Include these sections:
 
    Then:
    git clone https://github.com/z83zhang/ai-data-engineering
-   cd ai-data-engineering/sql_intelligence_agent
+   cd ai-data-engineering/metric_intelligence_agent
    pip install -r requirements.txt
    python main.py
 

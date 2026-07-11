@@ -1,4 +1,4 @@
-# SQL Intelligence Agent
+# Metric Intelligence Agent
 
 An agentic tool that answers data questions for product managers and data scientists — in plain English, no SQL required.
 
@@ -82,7 +82,7 @@ Then:
 
 ```bash
 git clone https://github.com/z83zhang/ai-data-engineering
-cd ai-data-engineering/sql_intelligence_agent
+cd ai-data-engineering/metric_intelligence_agent
 pip install -r requirements.txt
 python main.py
 ```

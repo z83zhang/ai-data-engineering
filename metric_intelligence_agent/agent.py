@@ -246,7 +246,7 @@ def validate_result(question, sql, df, context):
             )
 
     system_message = (
-        "You are a data quality validator for a SQL intelligence agent.\n"
+        "You are a data quality validator for a metric intelligence agent.\n"
         "Use the metric definitions and table catalog in the context to\n"
         "judge whether the result is correct.\n\n"
         "Full context:\n"
