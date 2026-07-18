@@ -57,6 +57,7 @@ User: "What was revenue last year?"
 - DuckDB, an in-memory analytics database
 - OpenAI `gpt-4o`
 - pandas
+- LangGraph
 
 ## Setup
 
@@ -127,9 +128,29 @@ This demo uses DuckDB and static context files for portability. A production dep
 
 The agent logic -- reflection loop, semantic validation, plain English explanation -- works the same at any scale. The context, execution, performance, and governance layers are what change.
 
+## Architecture
+
+The pipeline is implemented as a LangGraph state machine in `graph.py`. `build_graph(conn, context)` creates a graph whose nodes share the database connection and loaded metric context through closure, while each step reads and updates a flat `AgentState`.
+
+Nodes:
+
+- `generate_sql`: turns the user question into SQL. If the model returns an `OUT_OF_RANGE:` response, the graph sets `final_answer` and exits early without running a query.
+- `run_sql`: executes SQL against DuckDB and records success, data, or error.
+- `reflect`: rewrites SQL after either a DuckDB execution error or a semantic validation failure, then loops back to `run_sql`.
+- `validate`: checks successful query results with Python checks and one LLM semantic validation pass.
+- `explain`: writes a plain-English explanation for a verified result.
+- `output`: formats the verified result and explanation for terminal display.
+- `failure`: formats the final failure message when attempts are exhausted.
+
+Conditional routing controls the loop:
+
+- After `generate_sql`, out-of-range questions route directly to `END`; all other questions route to `run_sql`.
+- After `run_sql`, successful queries route to `validate`, failed queries route to `reflect` until `MAX_ATTEMPTS`, then to `failure`.
+- After `validate`, valid results route to `explain`; invalid results route to `reflect` until `MAX_ATTEMPTS`, then to `failure`.
+- `reflect` always returns to `run_sql`, and `explain` flows to `output` and then `END`.
+
 ## What's Next
 
-- Refactor pipeline into LangGraph with named nodes and explicit conditional routing.
 - Evaluation layer: log all attempts, scored test suite, failure pattern analysis.
 - Direct database connections via connection string.
 - Streamlit UI with setup mode and query mode.
