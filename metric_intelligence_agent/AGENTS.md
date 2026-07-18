@@ -6,7 +6,7 @@ A generalized agentic tool that connects to any database schema, ingests company
 
 ## Stack and Environment
 
-- Python project using `openai`, `duckdb`, and `pandas`.
+- Python project using `openai`, `duckdb`, `pandas`, and `langgraph`.
 - OpenAI chat completions use `gpt-4o`.
 - DuckDB runs in memory with the TPC-H extension loaded at runtime.
 - Required environment variable:
@@ -19,8 +19,9 @@ A generalized agentic tool that connects to any database schema, ingests company
 ## Project Structure
 
 - `agent.py`: Core database setup, context loading, SQL generation, execution, reflection, validation, and explanation functions.
+- `graph.py`: LangGraph state machine that routes SQL generation, execution, reflection, validation, explanation, and terminal output.
 - `main.py`: Demo pipeline runner that wires the agent functions together and runs example questions.
-- `requirements.txt`: Python dependencies for OpenAI, DuckDB, and pandas.
+- `requirements.txt`: Python dependencies for OpenAI, DuckDB, pandas, and LangGraph.
 - `context/table_catalog.md`: Warehouse layer guidance, table descriptions, joins, and caveats.
 - `context/metric_definitions.md`: Canonical metric formulas, source tables, and ambiguity rules.
 - `context/schema.sql`: Base TPC-H schema definitions.
@@ -58,8 +59,8 @@ A generalized agentic tool that connects to any database schema, ingests company
 
 - `conn`: active DuckDB connection.
 - `sql`: SQL string to execute.
-- Returns `{"success": True, "data": DataFrame, "sql": sql}` on success.
-- Returns `{"success": False, "error": error_message, "sql": sql}` on failure.
+- Returns `{"success": True, "sql": sql, "data": DataFrame, "error": ""}` on success.
+- Returns `{"success": False, "sql": sql, "data": None, "error": error_message}` on failure.
 - No LLM calls inside `run_sql()` ever.
 
 `reflect_sql(conn, context, question, sql, error, attempt) -> dict`
@@ -70,7 +71,9 @@ A generalized agentic tool that connects to any database schema, ingests company
 - `sql`: SQL from the previous failed or semantically wrong attempt.
 - `error`: DuckDB error message or semantic failure description from `validate_result()`.
 - `attempt`: current attempt number, starting at `1` after a failed attempt.
-- Returns a `run_sql()` result dict with an added `"attempts"` key, or a max-attempts failure dict.
+- Returns a consistent dict with `success`, `sql`, `data`, `error`, `attempts`, and `message`.
+- On successful reflection, `message` is `""`.
+- On max-attempt failure, `data` is `None` and `message` explains that maximum reflection attempts were reached.
 - The `error` argument accepts both DuckDB error messages (technical failure) and semantic failure descriptions from `validate_result()`. It is not limited to DuckDB errors.
 
 `validate_result(question, sql, df, context) -> dict`
@@ -79,7 +82,7 @@ A generalized agentic tool that connects to any database schema, ingests company
 - `sql`: SQL that produced the result.
 - `df`: pandas DataFrame containing the query result.
 - `context`: structured context string from `load_context()`.
-- Returns `{"valid": True, "reason": None}` when valid.
+- Returns `{"valid": True, "reason": ""}` when valid.
 - Returns `{"valid": False, "reason": reason}` when invalid.
 - Runs Python checks first: zero rows, all-null numeric columns, and negative value warnings.
 - Runs one LLM semantic check only if Python checks pass.
@@ -89,7 +92,7 @@ A generalized agentic tool that connects to any database schema, ingests company
 - `context`: structured context string returned by `load_context()`.
 - `question`: plain English analytics question from the user.
 - Returns a raw DuckDB SQL string with no markdown formatting or explanation.
-- If the question refers to dates outside the data range, returns a string starting with `OUT_OF_RANGE:` instead of SQL. This is a contract with `run_pipeline()`, which must check for this prefix before passing output to `run_sql()`.
+- If the question refers to dates outside the data range, returns a string starting with `OUT_OF_RANGE:` instead of SQL. This is a contract with `generate_sql_node`, which must check for this prefix before routing to `run_sql`.
 
 `explain_result(question, sql, df, context) -> str`
 
@@ -99,34 +102,52 @@ A generalized agentic tool that connects to any database schema, ingests company
 - `context`: structured context string from `load_context()`.
 - Returns a plain English explanation string under 150 words for non-technical users.
 
+### `graph.py`
+
+`AgentState`
+
+- Flat `TypedDict` containing per-question graph state: `question`, `sql`, `out_of_range`, `attempt`, `success`, `data`, `error`, `valid`, `validation_reason`, `explanation`, and `final_answer`.
+
+`build_graph(conn, context) -> CompiledStateGraph`
+
+- `conn`: active DuckDB connection captured by node closures.
+- `context`: structured context string captured by node closures.
+- Builds and compiles the LangGraph state machine.
+- Nodes: `generate_sql`, `run_sql`, `reflect`, `validate`, `explain`, `output`, and `failure`.
+- Conditional routers decide whether to execute SQL, reflect, validate, explain, fail, or exit early.
+
 ### `main.py`
 
-`print_failure(error, sql) -> None`
+`run_question(graph, question) -> None`
 
-- `error`: technical or semantic failure reason.
-- `sql`: final SQL attempted.
-- Prints a consistent failure message, including the reason and SQL attempted.
-- Purpose: centralizes failure output formatting for exhausted technical retries or semantic validation failures.
+- `graph`: compiled LangGraph graph from `build_graph(conn, context)`.
+- `question`: plain English analytics question to run.
+- Initializes full graph state, streams `graph.stream(..., stream_mode="values")`, logs reflection attempts, and prints `final_answer`.
+- Catches graph-level exceptions and prints a terminal error message.
 
-`run_pipeline(question, conn, context) -> None`
+At module runtime, `main.py` initializes the database, date range, context, and graph once, then runs the three demo questions.
 
-- `question`: plain English analytics question.
-- `conn`: active DuckDB connection.
-- `context`: structured context string from `load_context()`.
-- Generates SQL, handles out-of-range responses, executes SQL, reflects on technical failures, validates semantic correctness, reflects once on semantic failure, explains verified results, and prints output.
+## Graph Architecture
+
+`graph.py` wraps the agent functions in a LangGraph `StateGraph`. These implementation decisions are intentional:
+
+- Flat state, no nested dicts: `AgentState` keeps every value at the top level so node returns are simple partial state updates, routing conditions are easy to inspect, and UI integrations can read final state without unpacking nested objects.
+- Factory pattern with closure: `build_graph(conn, context)` captures the DuckDB connection and loaded context once, so graph nodes do not need to pass heavy runtime dependencies through state. State stays focused on per-question data.
+- Direct `state["key"]` access in routers: required routing fields are initialized in `main.py` before `graph.stream()`. Direct access makes missing state fail fast instead of silently routing based on defaults.
+- Reflection accepts technical and semantic errors: the same `reflect` node handles DuckDB execution failures from `run_sql()` and semantic validation failures from `validate_result()`, because both require the same action: rewrite SQL using the previous query plus a problem description.
+- `output_node` and `failure_node` are temporary terminal-formatting nodes: they produce `final_answer` for the command-line demo. For Streamlit, remove these nodes and render `state["data"]`, `state["explanation"]`, and `state["error"]` directly in the UI layer.
+- `MemorySaver` was removed: this demo runs each question independently and does not need checkpoint persistence. Re-add `MemorySaver` or another checkpointer when supporting pause/resume, human approval steps, long-running sessions, or multi-turn threaded conversations.
 
 ## Pipeline Flow
 
 1. `setup_database()` creates the in-memory TPC-H database and runtime aggregate tables.
 2. `get_date_range(conn)` discovers the available order date range.
 3. `load_context(min_date, max_date)` combines company context files with data range rules.
-4. `run_pipeline(question, conn, context)` asks `generate_sql()` to produce SQL or an `OUT_OF_RANGE:` message.
-5. If SQL starts with `OUT_OF_RANGE:`, the pipeline prints the message and stops before calling `run_sql()`.
-6. Otherwise, `run_sql()` executes the SQL.
-7. Technical failures are sent to `reflect_sql()` until success or `MAX_ATTEMPTS`.
-8. Successful results are checked by `validate_result()`.
-9. If validation fails, the semantic failure reason is sent to `reflect_sql()` and validated again.
-10. Verified results are passed to `explain_result()` and printed with the result table.
+4. `build_graph(conn, context)` compiles the LangGraph workflow.
+5. `run_question(graph, question)` initializes flat graph state and streams graph execution.
+6. `generate_sql` produces SQL or an `OUT_OF_RANGE:` message.
+7. Out-of-range questions set `final_answer` and route directly to `END`.
+8. In-range SQL routes through `run_sql`, `reflect`, `validate`, `explain`, `output`, or `failure` based on conditional edges and `MAX_ATTEMPTS`.
 
 ## Conventions
 
