@@ -60,10 +60,10 @@ def load_context(min_date, max_date):
         f'or "this quarter" that would resolve to dates after {max_date} or '
         f"before\n{min_date} -- do NOT generate SQL. Instead return this exact "
         "message and\nnothing else:\n\n"
-        f"OUT_OF_RANGE: This dataset only contains data from {min_date} to\n"
-        f"{max_date}. Your question refers to a time period outside this range.\n"
-        f"Please specify a year between {min_date[:4]} and {max_date[:4]}.\n\n"
-        "Only generate SQL if the question refers to a date range that falls\n"
+        f"OUT_OF_RANGE: This dataset only contains data from {min_date} to "
+        f"{max_date}. Your question refers to a time period outside this range. "
+        f"Please specify a year between {min_date[:4]} and {max_date[:4]}."
+        "\n\nOnly generate SQL if the question refers to a date range that falls\n"
         f"within {min_date} to {max_date}."
     )
 
@@ -134,15 +134,26 @@ def get_date_range(conn):
 
 def run_sql(conn, sql):
     """
-    Execute SQL against a DuckDB connection and return success data or an error.
+    Execute SQL against a DuckDB connection.
 
-    Returns {"success": True, "data": DataFrame, "sql": sql} on success,
-    otherwise {"success": False, "error": error_message, "sql": sql}.
+    Returns a consistent dict shape:
+        Success: {"success": True, "sql": sql, "data": DataFrame, "error": ""}
+        Failure: {"success": False, "sql": sql, "data": None, "error": str}
     """
     try:
-        return {"success": True, "data": conn.execute(sql).df(), "sql": sql}
+        return {
+            "success": True,
+            "sql": sql,
+            "data": conn.execute(sql).df(),
+            "error": "",
+        }
     except Exception as error:
-        return {"success": False, "error": str(error), "sql": sql}
+        return {
+            "success": False,
+            "sql": sql,
+            "data": None,
+            "error": str(error),
+        }
 
 
 def reflect_sql(conn, context, question, sql, error, attempt):
@@ -158,13 +169,35 @@ def reflect_sql(conn, context, question, sql, error, attempt):
         attempt: Current attempt number, starting at 1 after a failed attempt.
 
     Returns:
-        A run_sql() result dict with "attempts", or a max-attempts failure dict.
+        A consistent dict shape:
+            Success:
+                {
+                    "success": True,
+                    "sql": sql,
+                    "data": DataFrame,
+                    "error": "",
+                    "attempts": int,
+                    "message": "",
+                }
+            Failure:
+                {
+                    "success": False,
+                    "sql": sql,
+                    "data": None,
+                    "error": str,
+                    "attempts": int,
+                    "message": (
+                        "Maximum reflection attempts reached. Could not "
+                        "generate valid SQL for this question."
+                    ),
+                }
     """
     if attempt >= MAX_ATTEMPTS:
         return {
             "success": False,
-            "error": error,
             "sql": sql,
+            "data": None,
+            "error": error,
             "attempts": attempt,
             "message": (
                 "Maximum reflection attempts reached. Could not generate valid "
@@ -203,6 +236,7 @@ def reflect_sql(conn, context, question, sql, error, attempt):
     new_sql = re.sub(r"```[a-zA-Z]*", "", new_sql).replace("```", "").strip()
     result = run_sql(conn, new_sql)
     result["attempts"] = attempt + 1
+    result["message"] = ""
     return result
 
 
@@ -217,7 +251,7 @@ def validate_result(question, sql, df, context):
         context: Structured context string from load_context().
 
     Returns:
-        {"valid": True, "reason": None} when valid, otherwise
+        {"valid": True, "reason": ""} when valid, otherwise
         {"valid": False, "reason": reason}.
     """
     if len(df) == 0:
@@ -284,11 +318,11 @@ def validate_result(question, sql, df, context):
     )
     content = response.choices[0].message.content.strip()
     if "VALID: yes" in content:
-        return {"valid": True, "reason": None}
+        return {"valid": True, "reason": ""}
     if "VALID: no" in content:
         reason = content.split("REASON:", 1)[1].strip() if "REASON:" in content else ""
         return {"valid": False, "reason": reason}
-    return {"valid": True, "reason": None}
+    return {"valid": True, "reason": ""}
 
 
 def generate_sql(context, question):
