@@ -152,6 +152,10 @@ Conditional routing controls the loop:
 ## What's Next
 
 - Evaluation layer: log all attempts, scored test suite, failure pattern analysis.
+- RAG-based context retrieval using ChromaDB and OpenAI 
+  embeddings — replace full context injection with 
+  question-relevant chunk retrieval to reduce token usage 
+  by 70%+ per query
 - Direct database connections via connection string.
 - Streamlit UI with setup mode and query mode.
 

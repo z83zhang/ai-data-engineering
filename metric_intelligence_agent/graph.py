@@ -1,4 +1,4 @@
-from typing import Any, Optional, TypedDict
+from typing import Optional, TypedDict
 
 import pandas as pd
 from langgraph.graph import END, StateGraph
@@ -25,24 +25,32 @@ class AgentState(TypedDict):
     validation_reason: str
     explanation: str
     final_answer: str
+    total_input_tokens: int
+    total_output_tokens: int
 
 
 def build_graph(conn, context):
     def generate_sql_node(state):
         """Generate SQL or stop early for out-of-range questions."""
-        sql = generate_sql(context, state["question"])
+        sql, input_tokens, output_tokens = generate_sql(context, state["question"])
+        total_input_tokens = state["total_input_tokens"] + input_tokens
+        total_output_tokens = state["total_output_tokens"] + output_tokens
         if sql.startswith("OUT_OF_RANGE:"):
             message = sql.replace("OUT_OF_RANGE:", "").strip()
             return {
                 "sql": sql,
                 "out_of_range": True,
                 "final_answer": f"⚠️ {message}",
+                "total_input_tokens": total_input_tokens,
+                "total_output_tokens": total_output_tokens,
             }
 
         return {
             "sql": sql,
             "out_of_range": False,
             "attempt": 1,
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
         }
 
     def run_sql_node(state):
@@ -71,6 +79,12 @@ def build_graph(conn, context):
             "data": result["data"],
             "error": result["message"] or result["error"],
             "attempt": result["attempts"],
+            "total_input_tokens": (
+                state["total_input_tokens"] + result["input_tokens"]
+            ),
+            "total_output_tokens": (
+                state["total_output_tokens"] + result["output_tokens"]
+            ),
         }
 
     def validate_result_node(state):
@@ -85,6 +99,12 @@ def build_graph(conn, context):
         result = {
             "valid": validation["valid"],
             "validation_reason": reason,
+            "total_input_tokens": (
+                state["total_input_tokens"] + validation["input_tokens"]
+            ),
+            "total_output_tokens": (
+                state["total_output_tokens"] + validation["output_tokens"]
+            ),
         }
         if not validation["valid"]:
             result["error"] = reason
@@ -92,13 +112,17 @@ def build_graph(conn, context):
 
     def explain_result_node(state):
         """Explain a verified result in plain English."""
-        explanation = explain_result(
+        explanation, input_tokens, output_tokens = explain_result(
             state["question"],
             state["sql"],
             state["data"],
             context,
         )
-        return {"explanation": explanation}
+        return {
+            "explanation": explanation,
+            "total_input_tokens": state["total_input_tokens"] + input_tokens,
+            "total_output_tokens": state["total_output_tokens"] + output_tokens,
+        }
 
     # Note: output_node and failure_node format output for terminal display.
     # When integrating Streamlit, remove these nodes and read state["data"],
