@@ -178,6 +178,8 @@ def reflect_sql(conn, context, question, sql, error, attempt):
                     "error": "",
                     "attempts": int,
                     "message": "",
+                    "input_tokens": int,
+                    "output_tokens": int,
                 }
             Failure:
                 {
@@ -190,6 +192,8 @@ def reflect_sql(conn, context, question, sql, error, attempt):
                         "Maximum reflection attempts reached. Could not "
                         "generate valid SQL for this question."
                     ),
+                    "input_tokens": int,
+                    "output_tokens": int,
                 }
     """
     if attempt >= MAX_ATTEMPTS:
@@ -203,6 +207,8 @@ def reflect_sql(conn, context, question, sql, error, attempt):
                 "Maximum reflection attempts reached. Could not generate valid "
                 "SQL for this question."
             ),
+            "input_tokens": 0,
+            "output_tokens": 0,
         }
 
     system_message = (
@@ -232,11 +238,15 @@ def reflect_sql(conn, context, question, sql, error, attempt):
         ],
         temperature=0,
     )
+    input_tokens = response.usage.prompt_tokens
+    output_tokens = response.usage.completion_tokens
     new_sql = response.choices[0].message.content.strip()
     new_sql = re.sub(r"```[a-zA-Z]*", "", new_sql).replace("```", "").strip()
     result = run_sql(conn, new_sql)
     result["attempts"] = attempt + 1
     result["message"] = ""
+    result["input_tokens"] = input_tokens
+    result["output_tokens"] = output_tokens
     return result
 
 
@@ -251,8 +261,18 @@ def validate_result(question, sql, df, context):
         context: Structured context string from load_context().
 
     Returns:
-        {"valid": True, "reason": ""} when valid, otherwise
-        {"valid": False, "reason": reason}.
+        {
+            "valid": True,
+            "reason": "",
+            "input_tokens": int,
+            "output_tokens": int,
+        } when valid, otherwise
+        {
+            "valid": False,
+            "reason": reason,
+            "input_tokens": int,
+            "output_tokens": int,
+        }.
     """
     if len(df) == 0:
         return {
@@ -261,6 +281,8 @@ def validate_result(question, sql, df, context):
                 "Query returned 0 rows. The SQL may have an overly restrictive "
                 "filter or incorrect join condition."
             ),
+            "input_tokens": 0,
+            "output_tokens": 0,
         }
 
     numeric_df = df.select_dtypes(include="number")
@@ -269,6 +291,8 @@ def validate_result(question, sql, df, context):
             return {
                 "valid": False,
                 "reason": f"Numeric column '{column}' contains only null values.",
+                "input_tokens": 0,
+                "output_tokens": 0,
             }
 
     warnings = []
@@ -316,13 +340,30 @@ def validate_result(question, sql, df, context):
         ],
         temperature=0,
     )
+    input_tokens = response.usage.prompt_tokens
+    output_tokens = response.usage.completion_tokens
     content = response.choices[0].message.content.strip()
     if "VALID: yes" in content:
-        return {"valid": True, "reason": ""}
+        return {
+            "valid": True,
+            "reason": "",
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        }
     if "VALID: no" in content:
         reason = content.split("REASON:", 1)[1].strip() if "REASON:" in content else ""
-        return {"valid": False, "reason": reason}
-    return {"valid": True, "reason": ""}
+        return {
+            "valid": False,
+            "reason": reason,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        }
+    return {
+        "valid": True,
+        "reason": "",
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+    }
 
 
 def generate_sql(context, question):
@@ -334,7 +375,7 @@ def generate_sql(context, question):
         question: Plain English analytics question from the user.
 
     Returns:
-        A raw SQL string with no markdown formatting or explanation.
+        Tuple of (raw SQL string, input_tokens, output_tokens).
     """
     system_message = (
         "You are a data engineering assistant that writes SQL for DuckDB.\n\n"
@@ -366,7 +407,8 @@ def generate_sql(context, question):
     )
 
     sql = response.choices[0].message.content.strip()
-    return re.sub(r"```[a-zA-Z]*", "", sql).replace("```", "").strip()
+    sql = re.sub(r"```[a-zA-Z]*", "", sql).replace("```", "").strip()
+    return sql, response.usage.prompt_tokens, response.usage.completion_tokens
 
 
 def explain_result(question, sql, df, context):
@@ -380,7 +422,7 @@ def explain_result(question, sql, df, context):
         context: Structured context string from load_context().
 
     Returns:
-        A plain English explanation string under 150 words.
+        Tuple of (plain English explanation string, input_tokens, output_tokens).
     """
     system_message = (
         "You are a data analytics assistant explaining query results\n"
@@ -413,4 +455,5 @@ def explain_result(question, sql, df, context):
         ],
         temperature=0,
     )
-    return response.choices[0].message.content.strip()
+    explanation = response.choices[0].message.content.strip()
+    return explanation, response.usage.prompt_tokens, response.usage.completion_tokens

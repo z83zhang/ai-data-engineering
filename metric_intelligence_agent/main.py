@@ -8,7 +8,8 @@ def run_question(graph, question):
     print("\nQuestion:", question)
     print("-" * 50)
     thread_id = str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
+    # thread_id generated for future checkpointer integration
+    # not passed to graph.stream() until MemorySaver is re-added
     initial_state = {
         "question": question,
         "sql": "",
@@ -21,6 +22,8 @@ def run_question(graph, question):
         "validation_reason": "",
         "explanation": "",
         "final_answer": "",
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
     }
     try:
         final_state = None
@@ -29,7 +32,6 @@ def run_question(graph, question):
         # integrating Streamlit progress indicators
         for state_update in graph.stream(
             initial_state,
-            config=config,
             stream_mode="values"
         ):
             final_state = state_update
@@ -37,6 +39,15 @@ def run_question(graph, question):
                 print(f"  → reflection attempt {state_update['attempt']}")
         if final_state is not None:
             print(final_state["final_answer"])
+            cost = (
+                final_state["total_input_tokens"] / 1_000_000 * 2.50
+                + final_state["total_output_tokens"] / 1_000_000 * 10.00
+            )
+            print(
+                f"\n📊 Tokens: {final_state['total_input_tokens']} in / "
+                f"{final_state['total_output_tokens']} out | "
+                f"Est. cost: ${cost:.4f}"
+            )
         else:
             print("❌ Graph produced no output")
     except Exception as error:
