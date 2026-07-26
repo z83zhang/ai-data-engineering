@@ -85,27 +85,41 @@ def setup_database():
     conn.execute("""
         CREATE TABLE agg_daily_sales AS
         SELECT
-          o_orderdate AS order_date,
-          SUM(l_extendedprice * (1 - l_discount)) AS revenue,
-          COUNT(DISTINCT o_orderkey) AS order_volume,
-          AVG(l_discount) AS discount_rate
-        FROM orders
-        JOIN lineitem ON o_orderkey = l_orderkey
-        WHERE o_orderstatus <> 'C'
-        GROUP BY o_orderdate
+          o.o_orderdate                                AS order_date,
+          r.r_name                                     AS customer_region,
+          n.n_name                                     AS customer_nation,
+          c.c_mktsegment                               AS market_segment,
+          SUM(l.l_extendedprice * (1 - l.l_discount))  AS revenue,
+          COUNT(DISTINCT o.o_orderkey)                 AS order_volume,
+          AVG(l.l_discount)                            AS discount_rate
+        FROM orders o
+        JOIN lineitem l   ON o.o_orderkey  = l.l_orderkey
+        JOIN customer c   ON o.o_custkey   = c.c_custkey
+        JOIN nation n     ON c.c_nationkey = n.n_nationkey
+        JOIN region r     ON n.n_regionkey = r.r_regionkey
+        WHERE o.o_orderstatus <> 'C'
+        GROUP BY o.o_orderdate, r.r_name, n.n_name, c.c_mktsegment
     """)
     conn.execute("""
         CREATE TABLE agg_monthly_sales AS
         SELECT
-          YEAR(o_orderdate) AS order_year,
-          MONTH(o_orderdate) AS order_month,
-          SUM(l_extendedprice * (1 - l_discount)) AS revenue,
-          COUNT(DISTINCT o_orderkey) AS order_volume,
-          AVG(l_discount) AS discount_rate
-        FROM orders
-        JOIN lineitem ON o_orderkey = l_orderkey
-        WHERE o_orderstatus <> 'C'
-        GROUP BY YEAR(o_orderdate), MONTH(o_orderdate)
+          YEAR(o.o_orderdate)                          AS order_year,
+          MONTH(o.o_orderdate)                         AS order_month,
+          r.r_name                                     AS customer_region,
+          n.n_name                                     AS customer_nation,
+          c.c_mktsegment                               AS market_segment,
+          SUM(l.l_extendedprice * (1 - l.l_discount))  AS revenue,
+          COUNT(DISTINCT o.o_orderkey)                 AS order_volume,
+          AVG(l.l_discount)                            AS discount_rate
+        FROM orders o
+        JOIN lineitem l   ON o.o_orderkey  = l.l_orderkey
+        JOIN customer c   ON o.o_custkey   = c.c_custkey
+        JOIN nation n     ON c.c_nationkey = n.n_nationkey
+        JOIN region r     ON n.n_regionkey = r.r_regionkey
+        WHERE o.o_orderstatus <> 'C'
+        GROUP BY
+          YEAR(o.o_orderdate), MONTH(o.o_orderdate),
+          r.r_name, n.n_name, c.c_mktsegment
     """)
     return conn
 

@@ -120,6 +120,7 @@ This demo uses DuckDB and static context files for portability. A production dep
 
 - Cache generated SQL and results for common questions -- the same metric question gets asked repeatedly by different PMs.
 - Prefer pre-aggregated tables for speed, already implemented in this demo via `agg_daily_sales` and `agg_monthly_sales`.
+- In production, partition aggregate tables by date (Hive/BigQuery/Snowflake) so each partition contains only that day's dimension combinations -- enabling fast scans without full table reads.
 
 **Governance -- required at any regulated or data-mature company:**
 
@@ -149,15 +150,16 @@ Conditional routing controls the loop:
 - After `validate`, valid results route to `explain`; invalid results route to `reflect` until `MAX_ATTEMPTS`, then to `failure`.
 - `reflect` always returns to `run_sql`, and `explain` flows to `output` and then `END`.
 
-## What's Next
+## Architecture Diagrams
 
-- Evaluation layer: log all attempts, scored test suite, failure pattern analysis.
+- [File dependency graph](docs/file_dependency.md)
+- [Data flow graph](docs/data_flow.md)
+
+## What's Next
 - RAG-based context retrieval using ChromaDB and OpenAI 
-  embeddings — replace full context injection with 
-  question-relevant chunk retrieval to reduce token usage 
-  by 70%+ per query
-- Direct database connections via connection string.
-- Streamlit UI with setup mode and query mode.
+  embeddings
+- Direct database connections via connection string
+- Streamlit UI with setup mode and query mode
 
 ## Production Extensions
 

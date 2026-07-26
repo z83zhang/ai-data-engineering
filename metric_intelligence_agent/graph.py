@@ -11,6 +11,7 @@ from agent import (
     run_sql,
     validate_result,
 )
+from utils import compute_cost
 
 
 class AgentState(TypedDict):
@@ -27,6 +28,7 @@ class AgentState(TypedDict):
     final_answer: str
     total_input_tokens: int
     total_output_tokens: int
+    cost_usd: float
 
 
 def build_graph(conn, context):
@@ -43,6 +45,10 @@ def build_graph(conn, context):
                 "final_answer": f"⚠️ {message}",
                 "total_input_tokens": total_input_tokens,
                 "total_output_tokens": total_output_tokens,
+                "cost_usd": compute_cost(
+                    total_input_tokens,
+                    total_output_tokens,
+                ),
             }
 
         return {
@@ -137,7 +143,13 @@ def build_graph(conn, context):
             "Explanation:\n"
             f"{state['explanation']}"
         )
-        return {"final_answer": final_answer}
+        return {
+            "final_answer": final_answer,
+            "cost_usd": compute_cost(
+                state["total_input_tokens"],
+                state["total_output_tokens"],
+            ),
+        }
 
     def failure_node(state):
         """Build the final failure answer string."""
@@ -146,7 +158,13 @@ def build_graph(conn, context):
             f"Reason: {state['error']}\n"
             f"SQL attempted: {state['sql']}"
         )
-        return {"final_answer": final_answer}
+        return {
+            "final_answer": final_answer,
+            "cost_usd": compute_cost(
+                state["total_input_tokens"],
+                state["total_output_tokens"],
+            ),
+        }
 
     def route_after_generate(state):
         """Route generated SQL to execution or end for out-of-range questions."""

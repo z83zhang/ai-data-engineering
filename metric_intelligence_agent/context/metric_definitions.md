@@ -1,78 +1,57 @@
 # Metric Definitions
 
-These are the canonical metric definitions for SQL generation over the TPC-H warehouse context. Each metric includes the business definition, canonical SQL, source tables, and caveats.
+## Ambiguity
 
-## Ambiguity Handling
-
-If a question mentions "region" or "geography" without specifying customer or supplier, default to customer region and note the assumption in the explanation. Ask for clarification if the context suggests supplier analysis.
+- If question says "region" or "geography" without customer/supplier: default to customer region.
+- Note the customer-region assumption in explanation.
+- Ask/clarify only if context strongly suggests supplier analysis.
 
 ## Revenue
 
-Canonical definition:
-
-- Net merchandise revenue after line-level discount, before tax.
+- Definition: net merchandise revenue after line discount, before tax.
 - Formula: `SUM(l_extendedprice * (1 - l_discount))`
+- Exclude cancelled orders by default: `o_orderstatus <> 'C'`
+- Never use `orders.o_totalprice` as canonical revenue.
+- Do not include tax unless explicitly asked.
+- Order-date trends use `orders.o_orderdate`.
+- Customer geography path: `lineitem` -> `orders` -> `customer` -> `nation` -> `region`
+- Supplier geography path: `lineitem` -> `supplier` -> `nation` -> `region`; join `orders` too when order date or cancellation exclusion needed.
+- Do not mix customer/supplier geography without explicit aliases.
 
-Canonical SQL:
+Canonical fact SQL:
 
 ```sql
-SELECT
-  SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue
+SELECT SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue
 FROM lineitem AS l
-JOIN orders AS o
-  ON l.l_orderkey = o.o_orderkey
+JOIN orders AS o ON l.l_orderkey = o.o_orderkey
 WHERE o.o_orderstatus <> 'C';
 ```
 
-Table(s) to use:
-
-- `lineitem`
-- `orders`
-- Join condition: `lineitem.l_orderkey = orders.o_orderkey`
-
-Caveats:
-
-- Do not use `orders.o_totalprice` as canonical revenue.
-- Do not include tax unless explicitly asked.
-- Exclude cancelled orders by default unless the user explicitly asks for all orders.
-- For revenue by order date, join `lineitem` to `orders`, group by `o_orderdate`.
-- For revenue by customer region: `lineitem` -> `orders` -> `customer` -> `nation` -> `region`.
-- For revenue by supplier region: `lineitem` -> `supplier` -> `nation` -> `region`.
-- Never mix customer and supplier geography paths in one query without aliasing `nation` and `region` tables explicitly.
-
 ## Order Volume
 
-Canonical definition:
-
-- Count of distinct customer orders.
+- Definition: count distinct customer orders.
 - Formula: `COUNT(DISTINCT o_orderkey)`
+- Exclude cancelled orders by default: `o_orderstatus <> 'C'`
+- Never count `lineitem` rows as orders.
+- If joined to `lineitem`, still use `COUNT(DISTINCT o.o_orderkey)`.
+- Date: `orders.o_orderdate`.
 
 Canonical SQL:
 
 ```sql
-SELECT
-  COUNT(DISTINCT o_orderkey) AS order_volume
+SELECT COUNT(DISTINCT o_orderkey) AS order_volume
 FROM orders
 WHERE o_orderstatus <> 'C';
 ```
 
-Table(s) to use:
-
-- `orders`
-
-Caveats:
-
-- Never count `lineitem` rows as order volume; that counts order lines.
-- If joining `orders` to `lineitem`, still use `COUNT(DISTINCT orders.o_orderkey)`.
-- Exclude cancelled orders by default unless the user explicitly asks for all orders.
-- Use `o_orderdate` as the canonical date for trends.
-
 ## Average Order Value
 
-Canonical definition:
-
-- Revenue divided by order volume; measures spend per order.
+- Definition: revenue / order volume.
 - Formula: `SUM(l_extendedprice * (1 - l_discount)) / COUNT(DISTINCT o_orderkey)`
+- Exclude cancelled orders.
+- Prefer aggregated layer when monthly grain is available.
+- Sum revenue and order_volume from agg_monthly_sales separately before dividing -- do not divide pre-aggregated averages directly.
+- Fall back to fact layer only when aggregated layer lacks the required grain or filters.
 
 Canonical SQL:
 
@@ -81,69 +60,42 @@ SELECT
   SUM(l.l_extendedprice * (1 - l.l_discount))
     / NULLIF(COUNT(DISTINCT o.o_orderkey), 0) AS average_order_value
 FROM lineitem AS l
-JOIN orders AS o
-  ON l.l_orderkey = o.o_orderkey
+JOIN orders AS o ON l.l_orderkey = o.o_orderkey
 WHERE o.o_orderstatus <> 'C';
 ```
 
-Table(s) to use:
-
-- `lineitem`
-- `orders`
-- Join condition: `lineitem.l_orderkey = orders.o_orderkey`
-
-Caveats:
-
-- Always compute from the same grain in a single query; never divide two separately computed numbers from different queries.
-- Exclude cancelled orders (`o_orderstatus <> 'C'`) for consistency.
-
 ## Revenue by Customer Region
 
-Canonical definition:
+- Metric: revenue grouped by customer `region.r_name AS customer_region`.
+- Join path: `lineitem l` -> `orders o` -> `customer c` -> `nation customer_nation` -> `region customer_region`
+- Filter: `o.o_orderstatus <> 'C'`
+- Time filter: `o.o_orderdate`, not `l_shipdate`.
+- Do not use supplier path.
+- Aggregates may answer via `customer_region` when grain fits.
 
-- Revenue attributed to the customer's geographic region.
-- Formula: `SUM(l_extendedprice * (1 - l_discount))` grouped by `r_name`.
-
-Canonical SQL:
+Canonical fact SQL:
 
 ```sql
 SELECT
   customer_region.r_name AS customer_region,
   SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue
 FROM lineitem AS l
-JOIN orders AS o
-  ON l.l_orderkey = o.o_orderkey
-JOIN customer AS c
-  ON o.o_custkey = c.c_custkey
-JOIN nation AS customer_nation
-  ON c.c_nationkey = customer_nation.n_nationkey
-JOIN region AS customer_region
-  ON customer_nation.n_regionkey = customer_region.r_regionkey
+JOIN orders AS o ON l.l_orderkey = o.o_orderkey
+JOIN customer AS c ON o.o_custkey = c.c_custkey
+JOIN nation AS customer_nation ON c.c_nationkey = customer_nation.n_nationkey
+JOIN region AS customer_region ON customer_nation.n_regionkey = customer_region.r_regionkey
 WHERE o.o_orderstatus <> 'C'
 GROUP BY customer_region.r_name;
 ```
 
-Table(s) to use:
-
-- `lineitem`
-- `orders`
-- `customer`
-- `nation`
-- `region`
-- Join path: `lineitem` -> `orders` -> `customer` -> `nation` -> `region`
-
-Caveats:
-
-- This is customer geography; do not use the supplier join path.
-- Alias `nation` as `customer_nation` and `region` as `customer_region` if supplier geography also appears in the same query.
-- Use `o_orderdate` for time filtering, not `l_shipdate`.
-
 ## Revenue by Supplier Region
 
-Canonical definition:
-
-- Revenue attributed to the supplier's geographic region.
-- Formula: `SUM(l_extendedprice * (1 - l_discount))` grouped by `r_name`.
+- Metric: revenue grouped by supplier `region.r_name AS supplier_region`.
+- Join path: `lineitem l` -> `supplier s` -> `nation supplier_nation` -> `region supplier_region`
+- For order-date filters or cancelled-order exclusion, also join `orders o ON l.l_orderkey = o.o_orderkey`.
+- Do not use customer path.
+- Aggregates do not include supplier geography; use facts.
+- Customer-region and supplier-region revenue can differ; both are valid for different questions.
 
 Canonical SQL:
 
@@ -152,46 +104,8 @@ SELECT
   supplier_region.r_name AS supplier_region,
   SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue
 FROM lineitem AS l
-JOIN supplier AS s
-  ON l.l_suppkey = s.s_suppkey
-JOIN nation AS supplier_nation
-  ON s.s_nationkey = supplier_nation.n_nationkey
-JOIN region AS supplier_region
-  ON supplier_nation.n_regionkey = supplier_region.r_regionkey
+JOIN supplier AS s ON l.l_suppkey = s.s_suppkey
+JOIN nation AS supplier_nation ON s.s_nationkey = supplier_nation.n_nationkey
+JOIN region AS supplier_region ON supplier_nation.n_regionkey = supplier_region.r_regionkey
 GROUP BY supplier_region.r_name;
 ```
-
-With time filtering:
-
-```sql
-SELECT
-  supplier_region.r_name AS supplier_region,
-  SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue
-FROM lineitem AS l
-JOIN supplier AS s
-  ON l.l_suppkey = s.s_suppkey
-JOIN orders AS o
-  ON l.l_orderkey = o.o_orderkey
-JOIN nation AS supplier_nation
-  ON s.s_nationkey = supplier_nation.n_nationkey
-JOIN region AS supplier_region
-  ON supplier_nation.n_regionkey = supplier_region.r_regionkey
-WHERE o.o_orderstatus <> 'C'
-  AND o.o_orderdate BETWEEN '1995-01-01' AND '1995-12-31'
-GROUP BY supplier_region.r_name;
-```
-
-Table(s) to use:
-
-- `lineitem`
-- `supplier`
-- `nation`
-- `region`
-- Join path: `lineitem` -> `supplier` -> `nation` -> `region`
-
-Caveats:
-
-- This is supplier geography; do not use the customer join path.
-- Alias `nation` as `supplier_nation` and `region` as `supplier_region` if customer geography also appears in the same query.
-- For time filtering by order date, join back to `orders` via `lineitem.l_orderkey = orders.o_orderkey` and filter on `o_orderdate`.
-- Revenue by supplier region and revenue by customer region will return different numbers for the same time period; both are correct, they measure different things.
