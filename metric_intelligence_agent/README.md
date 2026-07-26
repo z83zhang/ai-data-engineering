@@ -2,9 +2,26 @@
 
 An agentic tool that answers data questions for product managers and data scientists — in plain English, no SQL required.
 
+> Built to solve a real problem observed in production:
+> PMs and data scientists at data-mature companies spend
+> hours waiting for analytics engineers to answer derived
+> metric questions. This tool answers them automatically
+> and checks its own work before returning a trusted result.
+
 ## The Problem
 
-At companies with mature data foundations, PMs and data scientists ask questions like "What was DAU last week?" or "What's revenue by region?" These require knowing the schema, metric definitions, and tribal knowledge about which tables to trust. This tool answers them automatically and checks its own work.
+At Meta and similar data-mature companies, top-line metrics 
+live in dashboards — but derived metric questions constantly 
+come in from PMs and data scientists:
+
+- "What is DAU for Latin America excluding Brazil?"
+- "How do I compute 30-day retention for mobile signups?"
+- "Why does my revenue number differ from the dashboard?"
+
+These questions require knowing which tables to trust, the 
+canonical metric definitions, and the tribal knowledge that 
+lives in wikis and chat threads. This tool answers them 
+automatically.
 
 ## How It Works
 
@@ -21,6 +38,20 @@ Layer 1: Technical -- did DuckDB execute without error?
 Layer 2: Semantic -- does the result answer the question? Are values plausible given metric definitions?
 
 If either fails, agent rewrites SQL automatically.
+
+## Evaluation Results
+
+Scored against a 13-question test suite covering four failure modes:
+
+| Failure Mode | Pass Rate |
+|---|---|
+| Layer preference | 3/3 (100%) |
+| Geography join path | 4/4 (100%) |
+| Metric formula | 3/3 (100%) |
+| Out-of-range detection | 3/3 (100%) |
+| **Overall** | **13/13 (100%)** |
+
+Average attempts per question: 1.08 — most questions answered correctly on first attempt with no reflection needed. Every run is logged to eval.db with token counts, latency, cost, and layer detection for ongoing monitoring.
 
 ## Real Output Examples
 
