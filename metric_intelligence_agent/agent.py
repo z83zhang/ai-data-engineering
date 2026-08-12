@@ -380,13 +380,14 @@ def validate_result(question, sql, df, context):
     }
 
 
-def generate_sql(context, question):
+def generate_sql(context, question, conversation_history=None):
     """
     Generate a DuckDB SQL query from warehouse context and a user question.
 
     Args:
         context: Structured context string returned by load_context().
         question: Plain English analytics question from the user.
+        conversation_history: Optional list of previous user questions.
 
     Returns:
         Tuple of (raw SQL string, input_tokens, output_tokens).
@@ -411,11 +412,20 @@ def generate_sql(context, question):
         f"{context}"
     )
 
+    user_message = question
+    if conversation_history:
+        user_message = (
+            "Previous questions:\n"
+            + "\n".join(conversation_history)
+            + "\n\nCurrent question: "
+            + question
+        )
+
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": system_message},
-            {"role": "user", "content": question},
+            {"role": "user", "content": user_message},
         ],
         temperature=0,
     )

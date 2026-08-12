@@ -2,3 +2,4 @@ openai
 duckdb
 pandas
 langgraph
+streamlit

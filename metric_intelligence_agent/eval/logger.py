@@ -86,6 +86,7 @@ def log_run(conn, final_state, response_time_ms, run_type="adhoc"):
     total_output_tokens = final_state["total_output_tokens"]
     cost_usd = final_state["cost_usd"]
 
+    run_id = str(uuid4())
     conn.execute(
         """
         INSERT INTO query_log (
@@ -110,7 +111,7 @@ def log_run(conn, final_state, response_time_ms, run_type="adhoc"):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            str(uuid4()),
+            run_id,
             datetime.now(),
             final_state["question"],
             sql_final,
@@ -128,4 +129,19 @@ def log_run(conn, final_state, response_time_ms, run_type="adhoc"):
             None,
             None,
         ],
+    )
+    return run_id
+
+
+def update_human_rating(conn, run_id, rating):
+    """Update the human rating for a logged query run."""
+    valid_ratings = {"correct", "partial", "wrong"}
+    if rating not in valid_ratings:
+        raise ValueError(
+            f"rating must be one of {sorted(valid_ratings)}, got '{rating}'"
+        )
+
+    conn.execute(
+        "UPDATE query_log SET human_rating = ? WHERE run_id = ?",
+        [rating, run_id],
     )
