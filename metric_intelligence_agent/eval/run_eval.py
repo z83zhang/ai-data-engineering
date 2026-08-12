@@ -110,7 +110,7 @@ def run_eval():
 
     try:
         for index, test_case in enumerate(TEST_CASES, start=1):
-            final_state = run_question(
+            final_state, _ = run_question(
                 graph,
                 eval_conn,
                 test_case["question"],

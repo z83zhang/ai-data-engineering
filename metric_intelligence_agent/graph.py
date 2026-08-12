@@ -16,6 +16,7 @@ from utils import compute_cost
 
 class AgentState(TypedDict):
     question: str
+    conversation_history: list
     sql: str
     out_of_range: bool
     attempt: int
@@ -25,24 +26,24 @@ class AgentState(TypedDict):
     valid: bool
     validation_reason: str
     explanation: str
-    final_answer: str
     total_input_tokens: int
     total_output_tokens: int
-    cost_usd: float
 
 
 def build_graph(conn, context):
     def generate_sql_node(state):
         """Generate SQL or stop early for out-of-range questions."""
-        sql, input_tokens, output_tokens = generate_sql(context, state["question"])
+        sql, input_tokens, output_tokens = generate_sql(
+            context,
+            state["question"],
+            state["conversation_history"],
+        )
         total_input_tokens = state["total_input_tokens"] + input_tokens
         total_output_tokens = state["total_output_tokens"] + output_tokens
         if sql.startswith("OUT_OF_RANGE:"):
-            message = sql.replace("OUT_OF_RANGE:", "").strip()
             return {
                 "sql": sql,
                 "out_of_range": True,
-                "final_answer": f"⚠️ {message}",
                 "total_input_tokens": total_input_tokens,
                 "total_output_tokens": total_output_tokens,
                 "cost_usd": compute_cost(
@@ -79,7 +80,7 @@ def build_graph(conn, context):
             state["error"],
             state["attempt"],
         )
-        return {
+        update = {
             "sql": result["sql"],
             "success": result["success"],
             "data": result["data"],
@@ -92,6 +93,12 @@ def build_graph(conn, context):
                 state["total_output_tokens"] + result["output_tokens"]
             ),
         }
+        if result["attempts"] >= MAX_ATTEMPTS:
+            update["cost_usd"] = compute_cost(
+                state["total_input_tokens"],
+                state["total_output_tokens"],
+            )
+        return update
 
     def validate_result_node(state):
         """Validate successful query results for technical and semantic fit."""
@@ -124,45 +131,15 @@ def build_graph(conn, context):
             state["data"],
             context,
         )
+        total_input_tokens = state["total_input_tokens"] + input_tokens
+        total_output_tokens = state["total_output_tokens"] + output_tokens
         return {
             "explanation": explanation,
-            "total_input_tokens": state["total_input_tokens"] + input_tokens,
-            "total_output_tokens": state["total_output_tokens"] + output_tokens,
-        }
-
-    # Note: output_node and failure_node format output for terminal display.
-    # When integrating Streamlit, remove these nodes and read state["data"],
-    # state["explanation"], and state["error"] directly from final_state in the
-    # UI layer instead.
-    def output_node(state):
-        """Build the final verified answer string."""
-        final_answer = (
-            f"✅ Answer verified — {state['attempt']} attempt(s)\n\n"
-            "Result:\n"
-            f"{state['data'].to_string()}\n\n"
-            "Explanation:\n"
-            f"{state['explanation']}"
-        )
-        return {
-            "final_answer": final_answer,
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
             "cost_usd": compute_cost(
-                state["total_input_tokens"],
-                state["total_output_tokens"],
-            ),
-        }
-
-    def failure_node(state):
-        """Build the final failure answer string."""
-        final_answer = (
-            "❌ Could not answer this question.\n"
-            f"Reason: {state['error']}\n"
-            f"SQL attempted: {state['sql']}"
-        )
-        return {
-            "final_answer": final_answer,
-            "cost_usd": compute_cost(
-                state["total_input_tokens"],
-                state["total_output_tokens"],
+                total_input_tokens,
+                total_output_tokens,
             ),
         }
 
@@ -194,8 +171,6 @@ def build_graph(conn, context):
     workflow.add_node("reflect", reflect_sql_node)
     workflow.add_node("validate", validate_result_node)
     workflow.add_node("explain", explain_result_node)
-    workflow.add_node("output", output_node)
-    workflow.add_node("failure", failure_node)
 
     workflow.set_entry_point("generate_sql")
     workflow.add_conditional_edges(
@@ -211,7 +186,7 @@ def build_graph(conn, context):
         route_after_run,
         {
             "reflect": "reflect",
-            "failure": "failure",
+            "failure": END,
             "validate": "validate",
         },
     )
@@ -220,13 +195,11 @@ def build_graph(conn, context):
         route_after_validate,
         {
             "reflect": "reflect",
-            "failure": "failure",
+            "failure": END,
             "explain": "explain",
         },
     )
     workflow.add_edge("reflect", "run_sql")
-    workflow.add_edge("explain", "output")
-    workflow.add_edge("output", END)
-    workflow.add_edge("failure", END)
+    workflow.add_edge("explain", END)
 
     return workflow.compile()

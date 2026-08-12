@@ -17,7 +17,24 @@ try:
         "What was revenue last year?",
     ]:
         try:
-            run_question(graph, eval_conn, question)
+            final_state, _ = run_question(graph, eval_conn, question)
+            if final_state["out_of_range"]:
+                message = final_state["sql"].replace("OUT_OF_RANGE:", "").strip()
+                print(f"⚠️ {message}")
+            elif final_state["success"] and final_state["valid"]:
+                print(
+                    f"✅ Answer verified — {final_state['attempt']} attempt(s)\n\n"
+                    "Result:\n"
+                    f"{final_state['data'].to_string()}\n\n"
+                    "Explanation:\n"
+                    f"{final_state['explanation']}"
+                )
+            else:
+                print(
+                    "❌ Could not answer this question.\n"
+                    f"Reason: {final_state['error']}\n"
+                    f"SQL attempted: {final_state['sql']}"
+                )
         except Exception as error:
             print("❌ Graph error:", error)
 finally:
