@@ -6,3 +6,11 @@ eval.db
 eval.db
 eval.db.wal
 eval.db.shm
+custom_context/
+custom_context/*.bak
+custom_context/layer_classifications.json
+northwind.db
+*.sqlite
+jaffle_shop.duckdb
+jaffle_shop_duckdb/
+jaffle-shop/

@@ -12,14 +12,34 @@ if not api_key:
 client = OpenAI(api_key=api_key)
 MAX_ATTEMPTS = int(os.environ.get("MAX_REFLECTION_ATTEMPTS", 3))
 
+SQL_RULES = """Rules:
+- Prefer the highest available data layer as specified in the table catalog. Only fall back to lower layers when the question cannot be answered from a higher layer.
+- Follow all metric definitions, formulas, join paths, and caveats in the context exactly. Do not deviate.
+- Apply all exclusion filters specified in the metric definitions unless the user explicitly asks to include them.
+- If a question is ambiguous, follow the ambiguity handling rules in the context and note the assumption in a SQL comment at the top of the query.
+- Return only raw SQL. No markdown, no backticks, no explanation, no preamble."""
 
-def load_context(min_date, max_date):
+
+def _build_sql_system_message(task, context):
+    return (
+        f"You are a data engineering assistant that {task} SQL.\n\n"
+        f"{SQL_RULES}\n\n"
+        f"Full context:\n{context}"
+    )
+
+
+def load_context(min_date=None, max_date=None, context_dir=None):
     """
     Read context files from disk and combine them with the data date range.
 
     Args:
-        min_date: Earliest available order date as a YYYY-MM-DD string.
-        max_date: Latest available order date as a YYYY-MM-DD string.
+        min_date: Optional earliest available date as a YYYY-MM-DD string.
+        max_date: Optional latest available date as a YYYY-MM-DD string.
+            The data-range instructions are included only when both dates are
+            provided.
+        context_dir: Optional directory containing table_catalog.md,
+            metric_definitions.md, and schema.sql. Defaults to the context
+            directory alongside this file.
 
     Returns a string in this format:
         === TABLE CATALOG ===
@@ -31,41 +51,51 @@ def load_context(min_date, max_date):
         === SCHEMA ===
         ...contents...
 
-        === DATA RANGE ===
-        This database contains order data from {min_date} to {max_date}.
-        ...
+        When both dates are provided:
+            === DATA RANGE ===
+            This database contains order data from {min_date} to {max_date}.
+            ...
 
     Raises FileNotFoundError if any context file is missing.
     """
-    base_dir = Path(__file__).parent
+    context_path = (
+        Path(context_dir)
+        if context_dir is not None
+        else Path(__file__).parent / "context"
+    )
     files = [
-        ("TABLE CATALOG", Path("context/table_catalog.md")),
-        ("METRIC DEFINITIONS", Path("context/metric_definitions.md")),
-        ("SCHEMA", Path("context/schema.sql")),
+        ("TABLE CATALOG", Path("table_catalog.md")),
+        ("METRIC DEFINITIONS", Path("metric_definitions.md")),
+        ("SCHEMA", Path("schema.sql")),
     ]
 
     sections = []
     for title, relative_path in files:
-        path = base_dir / relative_path
+        path = context_path / relative_path
         if not path.exists():
-            raise FileNotFoundError(f"Context file not found: {relative_path.as_posix()}")
+            raise FileNotFoundError(f"Context file not found: {path}")
         sections.append(f"=== {title} ===\n{path.read_text(encoding='utf-8')}")
 
-    sections.append(
-        "=== DATA RANGE ===\n"
-        f"This database contains order data from {min_date} to {max_date} only.\n\n"
-        "If a question references a time period outside this range -- including\n"
-        'relative references such as "last year", "recent", "current", '
-        '"latest",\n'
-        f'or "this quarter" that would resolve to dates after {max_date} or '
-        f"before\n{min_date} -- do NOT generate SQL. Instead return this exact "
-        "message and\nnothing else:\n\n"
-        f"OUT_OF_RANGE: This dataset only contains data from {min_date} to "
-        f"{max_date}. Your question refers to a time period outside this range. "
-        f"Please specify a year between {min_date[:4]} and {max_date[:4]}."
-        "\n\nOnly generate SQL if the question refers to a date range that falls\n"
-        f"within {min_date} to {max_date}."
-    )
+    if min_date is not None and max_date is not None:
+        sections.append(
+            "=== DATA RANGE ===\n"
+            f"This database contains order data from {min_date} to "
+            f"{max_date} only.\n\n"
+            "If a question references a time period outside this range -- "
+            "including\n"
+            'relative references such as "last year", "recent", "current", '
+            '"latest",\n'
+            f'or "this quarter" that would resolve to dates after {max_date} or '
+            f"before\n{min_date} -- do NOT generate SQL. Instead return this "
+            "exact message and\nnothing else:\n\n"
+            f"OUT_OF_RANGE: This dataset only contains data from {min_date} to "
+            f"{max_date}. Your question refers to a time period outside this "
+            f"range. Please specify a year between {min_date[:4]} and "
+            f"{max_date[:4]}."
+            "\n\nOnly generate SQL if the question refers to a date range that "
+            "falls\n"
+            f"within {min_date} to {max_date}."
+        )
 
     return "\n\n".join(sections)
 
@@ -225,24 +255,13 @@ def reflect_sql(conn, context, question, sql, error, attempt):
             "output_tokens": 0,
         }
 
-    system_message = (
-        "You are a data engineering assistant fixing a SQL query for DuckDB.\n\n"
-        "Rules you must follow exactly:\n"
-        "- Prefer the aggregated layer (agg_daily_sales, agg_monthly_sales) "
-        "first. Only fall back to fact tables when needed.\n"
-        "- Always exclude cancelled orders (o_orderstatus <> 'C') unless "
-        "the user explicitly asks for all orders.\n"
-        "- Follow all metric definitions and caveats in the context exactly.\n"
-        "- Return only raw SQL, no markdown, no backticks, no explanation.\n\n"
-        "Full context:\n"
-        f"{context}"
-    )
+    system_message = _build_sql_system_message("fixes", context)
     user_message = (
         "The following SQL failed to return a correct result.\n\n"
         f"Original question: {question}\n\n"
         f"SQL attempted:\n{sql}\n\n"
         f"Problem:\n{error}\n\n"
-        "Rewrite the SQL to fix the problem. Return only raw SQL."
+        "Rewrite the SQL to fix the problem."
     )
     response = client.chat.completions.create(
         model="gpt-4o",
@@ -392,25 +411,7 @@ def generate_sql(context, question, conversation_history=None):
     Returns:
         Tuple of (raw SQL string, input_tokens, output_tokens).
     """
-    system_message = (
-        "You are a data engineering assistant that writes SQL for DuckDB.\n\n"
-        "Rules you must follow exactly:\n"
-        "- Prefer the aggregated layer (agg_daily_sales, agg_monthly_sales) "
-        "first. Only fall back to fact tables (orders, lineitem) when the "
-        "aggregated layer cannot answer the question.\n"
-        "- Treat every metric definition and caveat in the context as law. "
-        "Do not deviate from canonical formulas, join paths, or exclusion "
-        "rules.\n"
-        "- Always exclude cancelled orders (o_orderstatus <> 'C') unless "
-        "the user explicitly asks for all orders.\n"
-        "- If the question is ambiguous about customer vs supplier geography, "
-        "default to customer region and note the assumption in a SQL comment "
-        "at the top of the query.\n"
-        "- Return only raw SQL. No markdown, no backticks, no explanation, "
-        "no preamble.\n\n"
-        "Full context:\n"
-        f"{context}"
-    )
+    system_message = _build_sql_system_message("writes", context)
 
     user_message = question
     if conversation_history:
