@@ -6,7 +6,7 @@ A generalized agentic tool that connects to any database schema, ingests company
 
 ## Stack and Environment
 
-- Python project using `openai`, `duckdb`, `pandas`, and `langgraph`.
+- Python project using `openai`, `duckdb`, `pandas`, `langgraph`, and `streamlit`.
 - OpenAI chat completions use `gpt-4o`.
 - DuckDB runs in memory with the TPC-H extension loaded at runtime.
 - Required environment variable:
@@ -19,10 +19,23 @@ A generalized agentic tool that connects to any database schema, ingests company
 ## Project Structure
 
 - `agent.py`: Database setup, context loading, SQL generation, execution, reflection, validation, explanation, token accounting from OpenAI responses.
+- `app.py`: Streamlit entry point, source-aware session initialization, sidebar,
+  and demo/custom source switching.
+- `app_pages/query.py`: Chat query UI, caching, result display, and ratings.
+- `app_pages/setup.py`: Read-only data-source setup, schema discovery, layer
+  classification, catalog generation/enrichment, and structured metric import.
 - `graph.py`: LangGraph state machine with flat `AgentState`, conditional routing, token totals, and terminal answer formatting.
 - `main.py`: Demo entry point that initializes database/context/graph/eval logging once, then runs three example questions.
 - `utils.py`: Shared dependency-free utilities; currently the single source of truth for `compute_cost()`.
-- `requirements.txt`: Python dependencies for OpenAI, DuckDB, pandas, and LangGraph.
+- `requirements.txt`: Python dependencies for OpenAI, DuckDB, pandas, LangGraph,
+  and Streamlit.
+- `connectors/base.py`: Connector contract and shared schema SQL generation with
+  large-schema summarization.
+- `connectors/duckdb.py`: Read-only DuckDB connector supporting tables, views,
+  and multiple user schemas.
+- `connectors/sqlite.py`: SQLite connector through DuckDB's SQLite extension;
+  discovers native SQLite tables and generates schema metadata in one LLM call.
+- `custom_context/`: Gitignored generated context, classifications, and backups.
 - `.gitignore`: Local ignore rules, including `eval.db`.
 - `context/table_catalog.md`: Warehouse layer selection rules, table descriptions, joins, aggregate table dimensions, and correctness caveats.
 - `context/metric_definitions.md`: Canonical metric formulas, source-table guidance, geography ambiguity rules, and metric caveats.
@@ -40,10 +53,12 @@ A generalized agentic tool that connects to any database schema, ingests company
 
 ### `agent.py`
 
-`load_context(min_date, max_date) -> str`
+`load_context(min_date=None, max_date=None, context_dir=None) -> str`
 
-- Reads `context/table_catalog.md`, `context/metric_definitions.md`, and `context/schema.sql`.
-- Appends a data-range section using `min_date` and `max_date`.
+- Reads `table_catalog.md`, `metric_definitions.md`, and `schema.sql` from the
+  supplied directory or the bundled `context/` directory.
+- Appends data-range and `OUT_OF_RANGE` instructions only when both dates are
+  provided.
 - Raises `FileNotFoundError` if a required context file is missing.
 - No LLM calls inside `load_context()` ever.
 
@@ -85,7 +100,7 @@ A generalized agentic tool that connects to any database schema, ingests company
 
 `generate_sql(context, question) -> tuple[str, int, int]`
 
-- Generates raw DuckDB SQL from the context and plain English question.
+- Generates raw SQL from the context and plain English question.
 - Strips markdown fences from model output.
 - Returns `(sql_or_out_of_range_message, input_tokens, output_tokens)`.
 - If the question refers to dates outside the data range, returns a string starting with `OUT_OF_RANGE:` instead of SQL. This is a contract with `generate_sql_node`, which must check the prefix before routing to `run_sql`.
@@ -201,7 +216,7 @@ A generalized agentic tool that connects to any database schema, ingests company
 
 1. `setup_database()` creates the in-memory TPC-H database and runtime aggregate tables.
 2. `get_date_range(conn)` discovers the available order date range.
-3. `load_context(min_date, max_date)` combines company context files with data range rules.
+3. `load_context(min_date, max_date)` combines demo context files with data range rules.
 4. `build_graph(conn, context)` compiles the LangGraph workflow.
 5. `setup_eval_db()` opens local evaluation logging.
 6. `run_question(graph, eval_conn, question)` initializes flat graph state and streams graph execution.
@@ -213,11 +228,33 @@ A generalized agentic tool that connects to any database schema, ingests company
 ## Conventions
 
 - No LLM calls inside `load_context()`, `setup_database()`, `get_date_range()`, or `run_sql()` ever.
-- Context files are the only thing that changes between company deployments; `agent.py` never hardcodes business rules.
+- Business rules remain in context files rather than being hardcoded in SQL
+  generation and reflection prompts.
 - `utils.py` is the single source of truth for `compute_cost()` and must remain dependency-free.
 - Never change function signatures without updating all callers in `graph.py`, `main.py`, `eval/runner.py`, and `eval/run_eval.py`.
 - Always run `python main.py` to verify end-to-end changes when LLM/API access is available.
-- For lightweight verification without API calls, run `python -m py_compile agent.py graph.py main.py utils.py eval/logger.py eval/runner.py eval/test_suite.py eval/run_eval.py`.
+- For lightweight verification without API calls, run `python -m py_compile
+  agent.py app.py graph.py main.py utils.py connectors/base.py
+  connectors/duckdb.py connectors/sqlite.py app_pages/query.py
+  app_pages/setup.py eval/logger.py eval/runner.py eval/test_suite.py
+  eval/run_eval.py`.
+
+## Connector and Setup Workflow
+
+- All connectors implement `connect()`, `test_connection()`,
+  `discover_schema()`, and `generate_schema_sql()` through `BaseConnector`.
+- DuckDB files open read-only. SQLite files attach read-only through DuckDB's
+  SQLite extension.
+- Schema metadata uses `table_name`, `column_name`, and `data_type`, plus
+  `table_schema` when multiple user schemas exist.
+- Setup writes `schema.sql`, analyst-reviewed `layer_classifications.json`,
+  `table_catalog.md`, and `metric_definitions.md` under `custom_context/`.
+- Catalog generation treats analyst layer choices as ground truth and leaves
+  join placeholders until trusted SQL or documentation verifies them.
+- Structured metric imports use strict JSON-schema extraction before a separate
+  Markdown-formatting call; unknown source tables are flagged for review.
+- Custom sources are not activated until setup and validation explicitly switch
+  the active application source.
 
 ## Known Limitations
 

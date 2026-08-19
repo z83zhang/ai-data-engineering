@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import streamlit as st
 
@@ -34,15 +35,55 @@ def get_demo_graph(_conn, context):
     return build_graph(_conn, context)
 
 
-def initialize_session(conn, context, min_date, max_date):
+def initialize_session(
+    conn,
+    context,
+    min_date,
+    max_date,
+    context_dir=None,
+    data_source="demo",
+):
     """Assign database-dependent resources and metadata for the active source."""
+    if context is None:
+        context = load_context(min_date, max_date, context_dir)
+
     st.session_state.conn = conn
     st.session_state.context = context
     st.session_state.graph = get_demo_graph(conn, context)
-    st.session_state.eval_conn = setup_eval_db()
-    st.session_state.data_source = "demo"
+    if "eval_conn" not in st.session_state:
+        st.session_state.eval_conn = setup_eval_db()
+    st.session_state.data_source = data_source
     st.session_state.min_date = min_date
     st.session_state.max_date = max_date
+
+
+def switch_data_source(
+    conn,
+    min_date=None,
+    max_date=None,
+    context_dir=None,
+    data_source="custom",
+):
+    """Switch sources while preserving the active evaluation log connection."""
+    if data_source == "custom":
+        min_date = None
+        max_date = None
+
+    st.session_state.messages = []
+    st.session_state.query_cache = {}
+    st.session_state.rating_submitted = False
+    st.session_state.last_run_id = None
+    st.session_state.last_final_state = None
+    st.session_state.example_question = None
+
+    initialize_session(
+        conn,
+        None,
+        min_date,
+        max_date,
+        context_dir=context_dir,
+        data_source=data_source,
+    )
 
 
 def initialize_session_state():
@@ -62,6 +103,16 @@ def initialize_session_state():
 
 st.set_page_config(page_title="Metric Intelligence Agent", layout="wide")
 initialize_session_state()
+custom_context_dir = Path(__file__).parent / "custom_context"
+required_context_files = (
+    "table_catalog.md",
+    "metric_definitions.md",
+    "schema.sql",
+)
+custom_context_available = custom_context_dir.is_dir() and all(
+    (custom_context_dir / filename).is_file()
+    for filename in required_context_files
+)
 if "conn" not in st.session_state:
     conn = get_demo_database()
     min_date, max_date = get_date_range(conn)
@@ -72,27 +123,43 @@ with st.sidebar:
     st.title("Metric Intelligence Agent")
     mode = st.radio("Mode", ["💬 Query", "⚙️ Setup"], index=0)
     st.info(f"Current data source: {st.session_state.data_source}")
-    with st.expander("Demo dataset info"):
-        st.write("Dataset: TPC-H (scale factor 0.1)")
-        st.write(
-            f"Date range: {st.session_state.min_date} to "
-            f"{st.session_state.max_date}"
-        )
-        st.write(
-            "Available metrics: revenue, order volume, average order value, "
-            "discount rate"
-        )
-        st.write(
-            "Available dimensions: date, month, customer region, customer nation, "
-            "market segment"
-        )
+    if custom_context_available:
+        st.info("💾 Custom context found — go to Setup to reload it")
+    if st.session_state.data_source == "demo":
+        with st.expander("Demo dataset info"):
+            st.write("Dataset: TPC-H (scale factor 0.1)")
+            st.write(
+                f"Date range: {st.session_state.min_date} to "
+                f"{st.session_state.max_date}"
+            )
+            st.write(
+                "Available metrics: revenue, order volume, average order value, "
+                "discount rate"
+            )
+            st.write(
+                "Available dimensions: date, month, customer region, customer "
+                "nation, market segment"
+            )
 
-    st.subheader("Try asking:")
-    for index, (label, question) in enumerate(EXAMPLE_QUESTIONS):
-        if st.button(label, key=f"sidebar-example-{index}", use_container_width=True):
-            if not st.session_state.get("example_question"):
-                st.session_state.example_question = question
-                st.rerun()
+        st.subheader("Try asking:")
+        for index, (label, question) in enumerate(EXAMPLE_QUESTIONS):
+            if st.button(
+                label,
+                key=f"sidebar-example-{index}",
+                use_container_width=True,
+            ):
+                if not st.session_state.get("example_question"):
+                    st.session_state.example_question = question
+                    st.rerun()
+    else:
+        with st.expander("Connected database info"):
+            st.write("Custom database connected")
+            st.write(
+                f"Date range: {st.session_state.min_date} to "
+                f"{st.session_state.max_date}"
+            )
+
+        st.info("💡 Ask a question about your data in the chat")
 
     if st.button("🗑️ Clear conversation", use_container_width=True):
         st.session_state.messages = []

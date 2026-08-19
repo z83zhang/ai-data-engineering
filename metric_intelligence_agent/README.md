@@ -25,11 +25,14 @@ automatically.
 
 ## How It Works
 
-1. Analytics engineer provides three context files.
-2. User asks question in plain English.
-3. Agent writes SQL and runs it against the database.
-4. If SQL fails or result looks wrong, agent reflects and rewrites automatically up to `MAX_ATTEMPTS` times.
-5. User gets verified answer with plain English explanation.
+1. Analytics engineer connects a read-only DuckDB or SQLite file in Setup mode.
+2. Setup discovers the schema and builds reviewed context files for table
+   selection and metric definitions.
+3. User asks a question in plain English.
+4. Agent writes SQL and runs it against the database.
+5. If SQL fails or the result looks wrong, the agent reflects and rewrites
+   automatically up to `MAX_ATTEMPTS` times.
+6. User gets a verified answer with a plain-English explanation.
 
 ## Two-Layer Reflection
 
@@ -89,6 +92,7 @@ User: "What was revenue last year?"
 - OpenAI `gpt-4o`
 - pandas
 - LangGraph
+- Streamlit
 
 ## Setup
 
@@ -119,17 +123,32 @@ pip install -r requirements.txt
 python main.py
 ```
 
+To launch the Streamlit interface:
+
+```bash
+streamlit run app.py
+```
+
 ## Generalization
 
-Replace the three context files with your company's own:
+The Setup page can connect read-only DuckDB and SQLite files, discover tables
+and views, classify their data layers, generate a reviewable table catalog, and
+import metric definitions from dbt JSON/YAML, LookML, or Cube schema files.
+Generated context is stored locally in the gitignored `custom_context/`
+directory:
 
 - `table_catalog.md` -> your data layer documentation
 - `metric_definitions.md` -> your canonical metric defs
 - `schema.sql` -> your table schemas
 
-Agent code does not change. Only context files do.
+The generated catalog supports manual edits, AI refinement, trusted-SQL
+enrichment, validation, undo, and timestamped backups. Structured metric import
+uses a strict extraction step, validates referenced tables against the connected
+schema, then formats the extracted facts as Markdown for review.
 
-For dbt users, `load_context()` can be extended to parse `manifest.json` and `schema.yml` directly. The agent interface stays the same.
+`load_context(min_date=None, max_date=None, context_dir=None)` can load either
+the bundled demo context or a custom context directory. Date-range rules are
+included only when both bounds are supplied.
 
 ## Scaling to Production
 
@@ -189,13 +208,16 @@ Conditional routing controls the loop:
 ## What's Next
 - RAG-based context retrieval using ChromaDB and OpenAI 
   embeddings
-- Direct database connections via connection string
-- Streamlit UI with setup mode and query mode
+- Database connectors: PostgreSQL, Snowflake, BigQuery — each follows the same
+  connector interface in `connectors/`. See `connectors/base.py` to implement a
+  new connector.
+- Metric extraction from trusted pipeline and dashboard SQL.
+- Setup validation and activation for fully configured custom sources.
 
 ## Production Extensions
 
 For teams deploying this in a real data environment:
 
-- dbt `manifest.json` ingestion to replace context files.
+- Additional semantic-layer and BI metadata import formats.
 - Slack integration for PM self-serve queries.
 - Company wiki URL ingestion for metric definitions.
