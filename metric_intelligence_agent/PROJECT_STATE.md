@@ -16,7 +16,7 @@
 ### Present but partially complete
 
 - **Custom-source setup.** The UI can connect a supported source, discover schema, generate and save schema context, collect and persist analyst table-layer classifications, generate/review/refine a table catalog, enrich it from supplied documentation, and create backups when saving.
-- **Structured metric import.** dbt JSON/YAML, LookML, and Cube inputs can be supplied by path or upload. Import performs structured extraction followed by Markdown formatting, supports review/editing, warns about unknown source tables, saves metric definitions, and can merge generated table sections.
+- **Structured metric import.** dbt JSON/YAML, LookML, Cube, and other structured inputs can be supplied by path or upload. Import performs grounded structured extraction followed by content-free Markdown formatting, validates table and column references, requires acknowledgment before saving unresolved references, preserves analyst-owned layers, supports review/editing, saves metric definitions, and can merge non-layer table updates.
 - **Custom source switching infrastructure.** The application has a source-switch operation that replaces the connection, context, graph, and source identity while clearing question-specific state and preserving evaluation logging. The setup UI can switch from an already active custom source back to the demo, but it cannot activate or reload a custom source.
 - **Definition and assumption disclosure.** The explanation prompt requests the metric definition and assumptions, but the output is free-form LLM prose and is not guaranteed or structurally represented.
 - **Database-agnostic structure.** Business context is externalized and connectors share a common interface, but SQL wording, custom layer detection, monitoring, and evaluation are not yet fully source-agnostic.
@@ -31,8 +31,6 @@ Recent repository activity and the remaining setup placeholders are concentrated
 - Pipeline/dashboard SQL metric import and manual metric entry are placeholders. The Validate tab is also a placeholder.
 - Setup completion checks file existence rather than validating content completeness, catalog coverage, metric references, or generated schema fidelity.
 - Metric definitions are the accepted sole join-path authority, but the bundled table catalog contains joins and catalog enrichment can write them.
-- Analyst layer selections are intended to remain authoritative, but structured imports can currently replace table sections containing model-extracted layer values.
-- Structured-import grounding checks referenced table names only. It does not represent or validate referenced columns, and unknown-table warnings do not block saving.
 - Generated schema SQL is LLM output constrained by prompts; it is not parsed, executed, or compared deterministically with discovered metadata before saving.
 - Cache keys exclude conversation context. A follow-up can therefore reuse an answer generated under different conversational meaning.
 - Cache hits reuse the original run ID, skip new evaluation logging, and direct feedback to the original record rather than giving each interaction distinct attribution.
@@ -47,7 +45,6 @@ Recent repository activity and the remaining setup placeholders are concentrated
 
 - Complete pipeline/dashboard SQL import, manual metric entry, setup validation, explicit custom-source activation, and previous-session reload.
 - Provide structured, guaranteed definition and assumption disclosure.
-- Enforce table-and-column grounding and save eligibility during structured metric import.
 - Add database integrations beyond DuckDB and SQLite while extending dialect, layer-reporting, monitoring, and evaluation behavior accordingly.
 - Add production multi-user authentication, shared sessions, shared caching, and shared evaluation storage.
 - Add retrieval-based context loading for larger knowledge sets.
@@ -75,7 +72,7 @@ Recent repository activity and the remaining setup placeholders are concentrated
 ## Recently Completed Significant Work
 
 - Added the custom database setup foundation, read-only DuckDB and SQLite connectors, schema discovery, catalog generation/review, and persistent layer classifications.
-- Added two-stage structured metric extraction with review and save support.
+- Added two-stage structured metric extraction with a content-free formatting skeleton, table-and-column grounding, acknowledgment-gated saving, format-neutral input, and analyst-layer preservation.
 - Added the Streamlit chat experience with caching, recent-question context, input validation, result metadata, and feedback.
 - Added the shared evaluation runner, persistent run logging, token/cost tracking, and the 13-case failure-mode evaluation suite.
 - Removed graph-owned output/failure presentation so terminal and UI entry points render raw execution state independently.
@@ -85,7 +82,5 @@ Recent repository activity and the remaining setup placeholders are concentrated
 - Implement pipeline/dashboard SQL metric import.
 - Implement manual metric entry.
 - Implement setup validation, explicit custom-source activation, and previous-session reload using the accepted source-switch boundary.
-- Prevent structured imports from overriding analyst layer classifications or introducing catalog join-path authority.
-- Add referenced-column validation and enforce grounding before structured imports can be saved.
 - Correct context-dependent cache identity and create distinct logging/feedback attribution for cached interactions.
 - Make custom-source layer detection, monitoring, and evaluation source-aware.
