@@ -16,19 +16,19 @@
 ### Present but partially complete
 
 - **Custom-source setup.** The UI can connect a supported source, discover schema, generate and save schema context, collect and persist analyst table-layer classifications, generate/review/refine a table catalog, enrich it from supplied documentation, and create backups when saving.
-- **Structured metric import.** dbt JSON/YAML, LookML, Cube, and other structured inputs can be supplied by path or upload. Import performs grounded structured extraction followed by content-free Markdown formatting, validates table and column references, requires acknowledgment before saving unresolved references, preserves analyst-owned layers, supports review/editing, saves metric definitions, and can merge non-layer table updates.
+- **Metric import.** Pipeline/dashboard SQL is parsed deterministically for factual metric content, with the LLM limited to business-facing prose. dbt manifest v10-v11 metrics use deterministic manifest and model-SQL parsing. LookML, Cube, and other structured inputs use grounded LLM extraction. All paths validate table and column references, require acknowledgment before saving unresolved references, support review/editing, and save metric definitions only; the Data Source tab remains the sole table-catalog writer.
 - **Custom source switching infrastructure.** The application has a source-switch operation that replaces the connection, context, graph, and source identity while clearing question-specific state and preserving evaluation logging. The setup UI can switch from an already active custom source back to the demo, but it cannot activate or reload a custom source.
 - **Definition and assumption disclosure.** The explanation prompt requests the metric definition and assumptions, but the output is free-form LLM prose and is not guaranteed or structurally represented.
 - **Database-agnostic structure.** Business context is externalized and connectors share a common interface, but SQL wording, custom layer detection, monitoring, and evaluation are not yet fully source-agnostic.
 
 ## Current Apparent Implementation Focus
 
-Recent repository activity and the remaining setup placeholders are concentrated on the custom-source setup path. Connection and schema discovery, table classification/catalog creation, and structured metric import exist; the unfinished portion is the path from additional metric-definition sources through validation and activation of a custom source for querying. This is an observation about the current repository, not an owner-established priority or roadmap.
+Recent repository activity and the remaining setup placeholders are concentrated on the custom-source setup path. Connection and schema discovery, table classification/catalog creation, and metric import exist; the unfinished portion includes manual metric entry, validation, and activation of a custom source for querying. This is an observation about the current repository, not an owner-established priority or roadmap.
 
 ## Partially Implemented / Known Gaps
 
 - Custom context can be prepared and detected, but there is no UI control to validate, activate, or reload it as the live query source.
-- Pipeline/dashboard SQL metric import and manual metric entry are placeholders. The Validate tab is also a placeholder.
+- Manual metric entry and the Validate tab are placeholders.
 - Setup completion checks file existence rather than validating content completeness, catalog coverage, metric references, or generated schema fidelity.
 - Metric definitions are the accepted sole join-path authority, but the bundled table catalog contains joins and catalog enrichment can write them.
 - Generated schema SQL is LLM output constrained by prompts; it is not parsed, executed, or compared deterministically with discovered metadata before saving.
@@ -38,12 +38,11 @@ Recent repository activity and the remaining setup placeholders are concentrated
 - An LLM semantic-review response that matches neither accepted decision format currently defaults to valid.
 - Maximum-attempt cost calculation can omit tokens from the latest correction call.
 - Runtime cost is terminal metadata but is not declared in the graph's typed state.
-- Custom metric saves append content without metric identity or deduplication handling.
 - Several older repository documents still describe removed graph presentation nodes and a formatted terminal-answer field.
 
 ## Deferred Production Work
 
-- Complete pipeline/dashboard SQL import, manual metric entry, setup validation, explicit custom-source activation, and previous-session reload.
+- Complete manual metric entry, setup validation, explicit custom-source activation, and previous-session reload.
 - Provide structured, guaranteed definition and assumption disclosure.
 - Add database integrations beyond DuckDB and SQLite while extending dialect, layer-reporting, monitoring, and evaluation behavior accordingly.
 - Add production multi-user authentication, shared sessions, shared caching, and shared evaluation storage.
@@ -72,14 +71,16 @@ Recent repository activity and the remaining setup placeholders are concentrated
 ## Recently Completed Significant Work
 
 - Added the custom database setup foundation, read-only DuckDB and SQLite connectors, schema discovery, catalog generation/review, and persistent layer classifications.
-- Added two-stage structured metric extraction with a content-free formatting skeleton, table-and-column grounding, acknowledgment-gated saving, format-neutral input, and analyst-layer preservation.
+- Added two-stage flexible structured metric extraction with a content-free formatting skeleton, table-and-column grounding, acknowledgment-gated saving, and analyst-layer preservation.
+- Added deterministic pipeline/dashboard SQL import, including separate metrics for multiple aliased aggregate expressions, and dbt manifest v10-v11 metric import. Metric imports now write metric definitions only; table-catalog ownership remains exclusively with Data Source setup.
+- Added case-insensitive metric-heading identity across metric-definition save paths: saving replaces every existing matching-name section with exactly one new definition.
+- Added distinct active-query-source and setup-connected-schema indicators so setup grounding state is visible without changing explicit activation behavior.
 - Added the Streamlit chat experience with caching, recent-question context, input validation, result metadata, and feedback.
 - Added the shared evaluation runner, persistent run logging, token/cost tracking, and the 13-case failure-mode evaluation suite.
 - Removed graph-owned output/failure presentation so terminal and UI entry points render raw execution state independently.
 
 ## Next Established Work
 
-- Implement pipeline/dashboard SQL metric import.
 - Implement manual metric entry.
 - Implement setup validation, explicit custom-source activation, and previous-session reload using the accepted source-switch boundary.
 - Correct context-dependent cache identity and create distinct logging/feedback attribution for cached interactions.

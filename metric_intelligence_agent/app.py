@@ -122,9 +122,21 @@ if "conn" not in st.session_state:
 with st.sidebar:
     st.title("Metric Intelligence Agent")
     mode = st.radio("Mode", ["💬 Query", "⚙️ Setup"], index=0)
-    st.info(f"Current data source: {st.session_state.data_source}")
-    if custom_context_available:
-        st.info("💾 Custom context found — go to Setup to reload it")
+    st.info(f"Active query source: {st.session_state.data_source}")
+    setup_source_path = st.session_state.get("setup_source_path")
+    if setup_source_path and st.session_state.get("custom_conn") is not None:
+        setup_path = Path(setup_source_path)
+        try:
+            setup_display = setup_path.relative_to(Path(__file__).parent.resolve())
+        except ValueError:
+            setup_display = Path(setup_path.name)
+        setup_is_active = (
+            st.session_state.get("conn") is st.session_state.get("custom_conn")
+        )
+        setup_state = "active query source" if setup_is_active else "not yet activated"
+        st.info(f"Setup connected to: {setup_display.as_posix()} ({setup_state})")
+    else:
+        st.info("Setup connected to: none")
     if st.session_state.data_source == "demo":
         with st.expander("Demo dataset info"):
             st.write("Dataset: TPC-H (scale factor 0.1)")

@@ -9,6 +9,12 @@ import streamlit as st
 from agent import client
 from connectors.duckdb import DuckDBConnector
 from connectors.sqlite import SQLiteConnector
+from metric_import import (
+    parse_dbt_manifest_metrics,
+    parse_sql_metric_facts,
+    merge_metric_definitions,
+    render_metric_markdown,
+)
 
 
 CONNECTION_TYPES = [
@@ -89,108 +95,6 @@ def _clean_catalog_response(content):
     return content.replace("```markdown", "").replace("```", "").strip()
 
 
-def _filter_dbt_json(content):
-    parsed = json.loads(content)
-    model_fields = {
-        "name",
-        "alias",
-        "database",
-        "schema",
-        "relation_name",
-        "description",
-        "columns",
-        "config",
-        "depends_on",
-        "refs",
-        "sources",
-        "raw_code",
-        "compiled_code",
-    }
-    models = {}
-    for node_id, node in parsed.get("nodes", {}).items():
-        if node.get("resource_type") != "model":
-            continue
-        model = {key: node[key] for key in model_fields if key in node}
-        config = model.get("config")
-        if isinstance(config, dict):
-            model["config"] = {
-                key: config[key]
-                for key in ("materialized", "unique_key", "enabled")
-                if key in config
-            }
-        if model.get("raw_code"):
-            model.pop("compiled_code", None)
-        models[node_id] = model
-
-    filtered = {"nodes": models}
-    for key in ("metrics", "semantic_models", "sources"):
-        if key in parsed:
-            filtered[key] = parsed[key]
-    return json.dumps(filtered, indent=2, default=str)
-
-
-def _markdown_sections(text):
-    headings = list(re.finditer(r"(?m)^(#{1,6})\s+(.+?)\s*$", text))
-    sections = {}
-    for index, heading in enumerate(headings):
-        level = len(heading.group(1))
-        end = len(text)
-        for next_heading in headings[index + 1 :]:
-            if len(next_heading.group(1)) <= level:
-                end = next_heading.start()
-                break
-        title = heading.group(2).strip().strip("`").casefold()
-        sections[title] = (heading.start(), end, text[heading.start() : end].strip())
-    return sections
-
-
-def _merge_table_catalog_updates(existing_catalog, updates, table_names):
-    existing_sections = _markdown_sections(existing_catalog)
-    update_sections = _markdown_sections(updates)
-    replacements = []
-    additions = []
-
-    for table_name in table_names:
-        key = str(table_name).casefold()
-        update = update_sections.get(key)
-        if update is None:
-            continue
-        existing = existing_sections.get(key)
-        if existing is None:
-            additions.append(_preserve_existing_layer("", update[2]))
-        else:
-            replacement = _preserve_existing_layer(existing[2], update[2])
-            replacements.append((existing[0], existing[1], replacement))
-
-    merged = existing_catalog
-    for start, end, replacement in sorted(replacements, reverse=True):
-        merged = merged[:start] + replacement + "\n\n" + merged[end:].lstrip()
-    if additions:
-        merged = merged.rstrip() + "\n\n" + "\n\n".join(additions)
-    return merged.strip() + "\n"
-
-
-def _preserve_existing_layer(existing_section, update_section):
-    """Strip imported Layer fields and retain the analyst-owned existing value."""
-    layer_pattern = re.compile(r"^\s*-\s*Layer\s*:", re.IGNORECASE)
-    existing_layer = next(
-        (
-            line
-            for line in existing_section.splitlines()
-            if layer_pattern.match(line)
-        ),
-        None,
-    )
-    update_lines = [
-        line
-        for line in update_section.splitlines()
-        if not layer_pattern.match(line)
-    ]
-    if existing_layer and update_lines:
-        update_lines.insert(1, existing_layer)
-    return "\n".join(update_lines).strip()
-
-
 def _schema_grounding_issues(metrics, schema_df):
     """Return extracted table and column references absent from the schema."""
     schema_columns = {}
@@ -227,6 +131,54 @@ def _schema_grounding_issues(metrics, schema_df):
         sorted(unknown_tables.values(), key=str.casefold),
         sorted(unknown_columns.values(), key=str.casefold),
     )
+
+
+def _metric_prose(facts, name_hint, trust_level):
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Write only business-facing prose for the supplied deterministic "
+                    "SQL facts. Do not add or change tables, columns, formulas, joins, "
+                    "filters, or grouping facts. Use an empty string when unsupported."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"name_hint": name_hint, "trust_level": trust_level, "facts": facts},
+                    indent=2,
+                ),
+            },
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "metric_prose",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "grain": {"type": "string"},
+                        "business_rules": {"type": "string"},
+                    },
+                    "required": ["name", "description", "grain", "business_rules"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        temperature=0,
+    )
+    return json.loads(response.choices[0].message.content)
+
+
+def _save_metric_definitions(metric_path, content):
+    existing = metric_path.read_text(encoding="utf-8") if metric_path.is_file() else ""
+    _save_catalog(metric_path, merge_metric_definitions(existing, content))
 
 
 def _show_table_catalog(custom_context):
@@ -562,7 +514,22 @@ def show():
     custom_context = Path(__file__).resolve().parents[1] / "custom_context"
     layers_path = custom_context / "layer_classifications.json"
     st.title("Setup Mode")
-    st.info(f"Current data source: {st.session_state.data_source}")
+    st.info(f"Active query source: {st.session_state.data_source}")
+    setup_source_path = st.session_state.get("setup_source_path")
+    if setup_source_path and st.session_state.get("custom_conn") is not None:
+        setup_path = Path(setup_source_path)
+        project_root = Path(__file__).resolve().parents[1]
+        try:
+            setup_display = setup_path.relative_to(project_root)
+        except ValueError:
+            setup_display = Path(setup_path.name)
+        setup_is_active = (
+            st.session_state.get("conn") is st.session_state.get("custom_conn")
+        )
+        setup_state = "active query source" if setup_is_active else "not yet activated"
+        st.info(f"Setup connected to: {setup_display.as_posix()} ({setup_state})")
+    else:
+        st.info("Setup connected to: none")
     connection_tab, metric_tab, validate_tab = st.tabs(
         [
             "🔌 Data Source",
@@ -632,12 +599,17 @@ def show():
                         st.session_state.raw_schema_df = schema_df
                         st.session_state.custom_conn = custom_conn
                         st.session_state.connector = connector
+                        st.session_state.setup_source_path = str(
+                            Path(file_path.strip()).resolve()
+                        )
+                        st.session_state.setup_connection_type = connection_type
                         st.session_state.pop("prepared_schema", None)
                         st.session_state.pop("confirmed_schema", None)
                         st.session_state.pop("catalog_draft", None)
                         st.session_state.pop("catalog_previous", None)
                         st.session_state.pop("catalog_refinement", None)
                         st.session_state.pop("catalog_save_warning", None)
+                        st.rerun()
                     except Exception as error:
                         st.error(str(error))
 
@@ -739,6 +711,10 @@ def show():
                         "confirmed_schema",
                         "table_count",
                         "layer_classifications",
+                        "custom_conn",
+                        "connector",
+                        "setup_source_path",
+                        "setup_connection_type",
                     ]:
                         st.session_state.pop(key, None)
                     st.rerun()
@@ -771,14 +747,21 @@ def show():
             structured_format = st.radio(
                 "Format",
                 [
-                    "Other structured format",
-                    "Looker LookML",
-                    "Cube schema",
                     "dbt manifest.json / semantic_manifest.json",
-                    "dbt metrics.yml / schema.yml",
+                    "Other structured format",
                 ],
                 key="structured_import_format",
             )
+            if structured_format.startswith("dbt manifest"):
+                st.caption(
+                    "Deterministic import for dbt manifest schema v10-v11. "
+                    "Other dbt artifact shapes are not interpreted."
+                )
+            else:
+                st.caption(
+                    "Flexible LLM extraction with schema grounding for LookML, "
+                    "Cube, and other structured formats."
+                )
             input_method = st.radio(
                 "How would you like to provide the file?",
                 ["Enter file path", "Upload file"],
@@ -816,7 +799,31 @@ def show():
                             None,
                         )
                         if structured_format.startswith("dbt manifest"):
-                            source_content = _filter_dbt_json(file_content)
+                            metrics = parse_dbt_manifest_metrics(json.loads(file_content))
+                            if not metrics:
+                                st.warning(
+                                    "No metric definitions found in this supported "
+                                    "dbt manifest shape."
+                                )
+                                st.stop()
+                            schema_df = st.session_state.get("schema_df")
+                            if schema_df is None:
+                                schema_df = st.session_state.get("raw_schema_df")
+                            unknown_tables, unknown_columns = _schema_grounding_issues(
+                                metrics, schema_df
+                            )
+                            st.session_state.structured_import_result = {
+                                "metric_definitions": render_metric_markdown(metrics),
+                                "layer_suggestions": [],
+                                "import_warnings": [
+                                    metric["name"]
+                                    for metric in metrics
+                                    if metric.get("sql_parse_failed")
+                                ],
+                                "unknown_tables": unknown_tables,
+                                "unknown_columns": unknown_columns,
+                            }
+                            st.rerun()
                         else:
                             source_content = file_content
 
@@ -834,12 +841,9 @@ def show():
                                             "the file, return an empty metrics array. "
                                             "Each field must be populated from the "
                                             "file content only — use empty string if "
-                                            "not found. Treat all listed source "
-                                            "formats equally. Extract every explicit "
+                                            "not found. Extract every explicit "
                                             "table and column reference as separate "
-                                            "table_name/column_name pairs. For dbt, "
-                                            "join conditions may be extracted from "
-                                            "explicit compiled_code or raw_code. A "
+                                            "table_name/column_name pairs. A "
                                             "source-provided materialization or layer "
                                             "may be returned only as suggested_layer "
                                             "for analyst information; it is never "
@@ -1027,15 +1031,8 @@ def show():
                             markdown_response.choices[0].message.content.strip()
                         )
 
-                        table_sections = []
                         layer_suggestions = []
                         for update in extraction["table_updates"]:
-                            lines = [f"### `{update['table_name']}`"]
-                            if update["grain"]:
-                                lines.append(f"- Grain: {update['grain']}")
-                            if update["notes"]:
-                                lines.append(f"- Notes: {update['notes']}")
-                            table_sections.append("\n".join(lines))
                             if update["suggested_layer"]:
                                 layer_suggestions.append(
                                     {
@@ -1045,11 +1042,8 @@ def show():
                                         ],
                                     }
                                 )
-                        table_catalog_updates = "\n\n".join(table_sections)
-
                         st.session_state.structured_import_result = {
                             "metric_definitions": metric_definitions,
-                            "table_catalog_updates": table_catalog_updates,
                             "layer_suggestions": layer_suggestions,
                             "unknown_tables": unknown_tables,
                             "unknown_columns": unknown_columns,
@@ -1062,6 +1056,12 @@ def show():
                 unknown_tables = import_result.get("unknown_tables", [])
                 unknown_columns = import_result.get("unknown_columns", [])
                 has_grounding_issues = bool(unknown_tables or unknown_columns)
+                for metric_name in import_result.get("import_warnings", []):
+                    st.warning(
+                        f"SQL could not be parsed for {metric_name or 'this metric'} — "
+                        "formula, filters, and joins were left blank; complete them "
+                        "manually or use the SQL-paste tab instead."
+                    )
                 if unknown_tables:
                     st.warning(
                         "Source tables not found in the connected schema: "
@@ -1092,15 +1092,6 @@ def show():
                         f"only; not saved): {suggestions}"
                     )
 
-                st.subheader("Table Catalog Updates")
-                st.markdown(import_result["table_catalog_updates"])
-                with st.expander("Edit manually"):
-                    catalog_updates_review = st.text_area(
-                        "Edit table catalog updates",
-                        value=import_result["table_catalog_updates"],
-                        height=300,
-                    )
-
                 grounding_acknowledged = not has_grounding_issues
                 if has_grounding_issues:
                     grounding_acknowledged = st.checkbox(
@@ -1119,42 +1110,7 @@ def show():
                             metric_path = (
                                 custom_context / "metric_definitions.md"
                             )
-                            catalog_path = custom_context / "table_catalog.md"
-                            existing_catalog = catalog_path.read_text(
-                                encoding="utf-8"
-                            )
-                            schema_df = st.session_state.get("schema_df")
-                            if schema_df is None:
-                                schema_df = st.session_state.get("raw_schema_df")
-                            table_names = (
-                                schema_df["table_name"].unique().tolist()
-                                if schema_df is not None
-                                else []
-                            )
-                            merged_catalog = _merge_table_catalog_updates(
-                                existing_catalog,
-                                catalog_updates_review,
-                                table_names,
-                            )
-
-                            existing_metrics = (
-                                metric_path.read_text(encoding="utf-8").rstrip()
-                                if metric_path.is_file()
-                                else ""
-                            )
-                            combined_metrics = "\n\n".join(
-                                part
-                                for part in (
-                                    existing_metrics,
-                                    metrics_review.strip(),
-                                )
-                                if part
-                            )
-                            _save_catalog(
-                                metric_path,
-                                combined_metrics.strip() + "\n",
-                            )
-                            _save_catalog(catalog_path, merged_catalog)
+                            _save_metric_definitions(metric_path, metrics_review)
                             st.session_state.pop(
                                 "structured_import_result",
                                 None,
@@ -1174,7 +1130,120 @@ def show():
                         )
                         st.rerun()
         with source_tab2:
-            st.info("SQL import — coming in next step.")
+            if st.session_state.pop("sql_import_saved", False):
+                st.session_state.pop("metric_sql_input", None)
+                st.session_state.pop("sql_metric_name_hint", None)
+                st.session_state.pop("sql_metric_review", None)
+                st.success("Saved. Paste another query to import more metrics.")
+            metric_name_hint = st.text_input(
+                "Metric name (optional)", key="sql_metric_name_hint"
+            )
+            sql_trust = st.selectbox(
+                "SQL trust level",
+                ["Trusted production SQL", "Analyst-provided SQL", "Needs review"],
+            )
+            pasted_sql = st.text_area(
+                "Pipeline or dashboard SQL", height=260, key="metric_sql_input"
+            )
+            if st.button("Import SQL", disabled=not pasted_sql.strip()):
+                try:
+                    st.session_state.pop("sql_import_grounding_ack", None)
+                    metric_facts = parse_sql_metric_facts(pasted_sql)
+                    if not metric_facts:
+                        raise ValueError(
+                            "No aggregate metric expressions were found in the SELECT list."
+                        )
+                    metrics = []
+                    multiple_metrics = len(metric_facts) > 1
+                    with st.spinner("Writing metric descriptions..."):
+                        for facts in metric_facts:
+                            prose_hint = facts["name"] or (
+                                "" if multiple_metrics else metric_name_hint
+                            )
+                            prose = _metric_prose(facts, prose_hint, sql_trust)
+                            metrics.append(
+                                {
+                                    "name": (
+                                        facts["name"]
+                                        if multiple_metrics
+                                        else metric_name_hint.strip()
+                                        or facts["name"]
+                                        or prose["name"]
+                                    ),
+                                    "description": prose["description"],
+                                    "formula": facts["formula"],
+                                    "source_tables": facts["source_tables"],
+                                    "column_references": facts["column_references"],
+                                    "join_conditions": facts["join_conditions"],
+                                    "filters": facts["filters"],
+                                    "grain": ", ".join(facts["group_by"])
+                                    or prose["grain"],
+                                    "business_rules": prose["business_rules"],
+                                    "trust_level": sql_trust,
+                                }
+                            )
+                    schema_df = st.session_state.get("schema_df")
+                    if schema_df is None:
+                        schema_df = st.session_state.get("raw_schema_df")
+                    unknown_tables, unknown_columns = _schema_grounding_issues(
+                        metrics, schema_df
+                    )
+                    st.session_state.sql_import_result = {
+                        "metric_definitions": render_metric_markdown(metrics),
+                        "metric_count": len(metrics),
+                        "unknown_tables": unknown_tables,
+                        "unknown_columns": unknown_columns,
+                    }
+                    st.session_state.pop("sql_metric_review", None)
+                except Exception as error:
+                    st.error(f"Failed to import SQL: {error}")
+
+            if st.session_state.get("sql_import_result"):
+                sql_result = st.session_state.sql_import_result
+                unknown_tables = sql_result["unknown_tables"]
+                unknown_columns = sql_result["unknown_columns"]
+                if sql_result.get("metric_count", 1) > 1:
+                    st.info(
+                        f"{sql_result['metric_count']} metrics detected — using "
+                        "column aliases as names; edit below if needed."
+                    )
+                if unknown_tables:
+                    st.warning(
+                        "Source tables not found in the connected schema: "
+                        f"{unknown_tables}"
+                    )
+                if unknown_columns:
+                    st.warning(
+                        "Source columns not found in the connected schema: "
+                        f"{unknown_columns}"
+                    )
+                st.subheader("Extracted Metric Definition")
+                sql_review = st.text_area(
+                    "Review metric definition",
+                    value=sql_result["metric_definitions"],
+                    height=400,
+                    key="sql_metric_review",
+                )
+                has_issues = bool(unknown_tables or unknown_columns)
+                acknowledged = not has_issues
+                if has_issues:
+                    acknowledged = st.checkbox(
+                        "I acknowledge these references are not present in the "
+                        "discovered schema and want to save anyway.",
+                        key="sql_import_grounding_ack",
+                    )
+                save_col, discard_col = st.columns(2)
+                with save_col:
+                    if st.button("Save SQL Metric", disabled=not acknowledged):
+                        _save_metric_definitions(metric_path, sql_review)
+                        st.session_state.pop("sql_import_result", None)
+                        st.session_state.sql_import_saved = True
+                        st.rerun()
+                with discard_col:
+                    if st.button("Discard SQL Import"):
+                        st.session_state.pop("sql_import_result", None)
+                        st.session_state.pop("sql_import_grounding_ack", None)
+                        st.rerun()
         with source_tab3:
             st.info("Manual input — coming in next step.")
 

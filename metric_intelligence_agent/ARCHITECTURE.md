@@ -18,7 +18,7 @@ The normal path is: interpret the question with the active context, generate SQL
 
 The user-facing layer accepts plain-English questions, supplies recent user-question context, checks the session cache, renders results and metadata, and captures ratings. It receives terminal execution state rather than a preformatted answer, so it owns display decisions and does not own query correctness.
 
-The setup experience owns connection selection, schema discovery, analyst table classification, catalog review, and trusted metric-context ingestion. It may use the LLM to transform supplied material, but it does not grant the model authority to invent business meaning, joins, or table layers.
+The setup experience owns connection selection, schema discovery, analyst table classification, catalog review, and trusted metric-context ingestion. Machine-readable metric facts from supported SQL and dbt manifest v10-v11 inputs are parsed deterministically; flexible structured formats may use grounded LLM extraction. The Data Source setup path alone writes the table catalog. Metric import does not grant the model authority to invent business meaning, joins, or table layers.
 
 ### Connector boundary
 
@@ -76,7 +76,7 @@ The runner initializes graph state, executes one question to a terminal state, c
 
 ### Custom-source setup and switching flow
 
-The current repository can connect a supported custom source, discover schema, persist analyst layer classifications, generate and review a catalog, and extract structured metric definitions in two stages for review and saving. Pipeline/dashboard SQL import, manual metric entry, setup validation, activation, and previous-session reload are not yet complete.
+The current repository can connect a supported custom source, discover schema, persist analyst layer classifications, generate and review a catalog, and import metric definitions from pipeline/dashboard SQL, supported dbt manifests, and flexible structured files. Manual metric entry, setup validation, activation, and previous-session reload are not yet complete.
 
 The accepted activation boundary is nevertheless settled: all required custom context must exist, the analyst explicitly activates it, and the custom connection, assembled context, graph, and active-source identity are replaced together. The custom connection becomes query-active immediately. Switching in either direction clears conversation history, query cache, rating-submission state, the previous run identity and result, and any pending example question. The evaluation connection and history persist.
 
@@ -106,7 +106,7 @@ The LLM is responsible for:
 - explaining a verified result,
 - transforming discovered schema metadata where a connector requires it,
 - generating and refining catalog prose from schema plus analyst classifications,
-- and extracting explicit metric content from supported structured sources.
+- and extracting explicit metric content from flexible structured sources where no deterministic parser is supported.
 
 The LLM is not allowed to independently:
 
@@ -116,9 +116,9 @@ The LLM is not allowed to independently:
 - override canonical metric definitions,
 - or present an unvalidated result as verified.
 
-SQL generation, semantic review, explanation, ambiguity interpretation, and source extraction remain model-generated behavior even at deterministic temperature settings. System-enforced behavior includes context-file loading, query execution, deterministic result checks, attempt limits, routing, source-scoped session state, and run logging. Definition and assumption disclosure is currently best-effort explanation text; structured guaranteed disclosure is deferred.
+SQL generation, semantic review, explanation, ambiguity interpretation, and flexible-source extraction remain model-generated behavior even at deterministic temperature settings. System-enforced behavior includes deterministic parsing of supported SQL and dbt artifacts, context-file loading, query execution, deterministic result checks, attempt limits, routing, source-scoped session state, and run logging. Definition and assumption disclosure is currently best-effort explanation text; structured guaranteed disclosure is deferred.
 
-Structured import uses two stages: strict structured extraction followed by presentation formatting. Grounding must ultimately cover referenced tables and columns and control save eligibility; the current implementation only warns about unknown tables.
+Flexible structured import uses separate extraction and presentation-formatting stages. All metric-import paths ground referenced tables and columns against discovered schema and require explicit acknowledgment before unresolved references may be saved. Metric import writes metric definitions only; table-catalog persistence belongs exclusively to Data Source setup.
 
 ## Validation and Trust Boundaries
 
@@ -165,9 +165,8 @@ Source switching is atomic at the architectural level: connection, context, grap
 
 ## Current Architectural Limitations / Deferred Production Architecture
 
-- Custom-source pipeline/dashboard SQL import, manual metric entry, validation, explicit activation, and previous-session reload are deferred; connection, discovery, classification, catalog work, and structured import exist now.
+- Custom-source manual metric entry, validation, explicit activation, and previous-session reload are deferred; connection, discovery, classification, catalog work, SQL import, and structured import exist now.
 - Structured, guaranteed definition and assumption disclosure is deferred; current prose is LLM-generated.
-- Structured-import grounding must be extended from table warnings to table-and-column validation with enforced save eligibility.
 - Connectors beyond DuckDB and SQLite are deferred.
 - Retrieval-based context loading is deferred; the full static context is currently supplied to model stages.
 - Production multi-user authentication, shared sessions, shared caching, and shared evaluation storage are deferred.
@@ -177,8 +176,6 @@ Source switching is atomic at the architectural level: connection, context, grap
 
 - The accepted custom activation and reload boundary is not reachable from the current setup UI.
 - Metric definitions are the accepted sole join-path authority, but bundled catalogs and catalog enrichment currently contain or write join paths.
-- Analyst layer selections are authoritative, but structured imports can currently replace catalog sections with model-extracted layer metadata.
-- Structured import checks unknown tables only, does not validate referenced columns, and does not block saving after a warning.
 - Custom-source layer reporting and evaluation detection are still hardcoded to demo table names.
 
 ## Open Architecture Questions
