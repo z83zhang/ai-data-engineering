@@ -9,11 +9,12 @@ import streamlit as st
 from agent import client
 from connectors.duckdb import DuckDBConnector
 from connectors.sqlite import SQLiteConnector
+from dbt_semantic_import import extract_dbt_semantic_document
+from grounding import schema_grounding_issues
 from metric_import import (
     empty_metric_document,
     load_metric_definitions_yaml,
     merge_metric_documents,
-    parse_dbt_manifest_metrics,
     parse_metric_definitions_yaml,
     merge_metric_definitions,
     render_metric_definitions_yaml,
@@ -108,44 +109,6 @@ def _clean_catalog_response(content):
     return content.replace("```markdown", "").replace("```", "").strip()
 
 
-def _schema_grounding_issues(metrics, schema_df):
-    """Return extracted table and column references absent from the schema."""
-    schema_columns = {}
-    if schema_df is not None:
-        for _, row in schema_df.iterrows():
-            table_name = str(row["table_name"])
-            identifiers = [table_name]
-            if "table_schema" in schema_df.columns:
-                identifiers.append(f"{row['table_schema']}.{table_name}")
-            for identifier in identifiers:
-                schema_columns.setdefault(identifier.casefold(), set()).add(
-                    str(row["column_name"]).casefold()
-                )
-
-    unknown_tables = {}
-    unknown_columns = {}
-    for metric in metrics:
-        for table_name in metric["source_tables"]:
-            key = table_name.casefold()
-            if key not in schema_columns:
-                unknown_tables.setdefault(key, table_name)
-        for reference in metric["column_references"]:
-            table_name = reference["table_name"]
-            column_name = reference["column_name"]
-            table_key = table_name.casefold()
-            if table_key not in schema_columns:
-                unknown_tables.setdefault(table_key, table_name)
-                continue
-            if column_name.casefold() not in schema_columns[table_key]:
-                label = f"{table_name}.{column_name}"
-                unknown_columns.setdefault(label.casefold(), label)
-
-    return (
-        sorted(unknown_tables.values(), key=str.casefold),
-        sorted(unknown_columns.values(), key=str.casefold),
-    )
-
-
 def _metric_prose(facts, name_hint, trust_level):
     response = client.chat.completions.create(
         model="gpt-4o",
@@ -220,6 +183,96 @@ def _preserve_saved_notes(document, metric_path):
         if name.casefold() in saved_notes:
             document["notes"][name] = saved_notes[name.casefold()]
     return document
+
+
+def _render_dbt_layered_import(import_result, custom_context):
+    unknown_tables = import_result.get("unknown_tables", [])
+    unknown_columns = import_result.get("unknown_columns", [])
+    for warning in import_result.get("warnings", []):
+        st.warning(warning)
+    if unknown_tables:
+        st.warning(f"Source tables not found in the connected schema: {unknown_tables}")
+    if unknown_columns:
+        st.warning(f"Source columns not found in the connected schema: {unknown_columns}")
+
+    resolutions = {}
+    unresolved_keys = import_result.get("unresolved_keys", [])
+    if unresolved_keys:
+        st.warning(
+            "Some dbt relationship declarations do not state a complete direction. "
+            "Confirm each before saving."
+        )
+    for candidate in unresolved_keys:
+        left = candidate["left"]
+        right = candidate["right"]
+        options = {
+            "Select relationship direction": None,
+            f"{left['entity']}.{left['column']} references {right['entity']}.{right['column']}": "left_references_right",
+            f"{right['entity']}.{right['column']} references {left['entity']}.{left['column']}": "right_references_left",
+        }
+        label = st.selectbox(
+            f"dbt relationship: {left['entity']}.{left['column']} = {right['entity']}.{right['column']}",
+            list(options),
+            key=f"dbt_resolution_{candidate['id']}",
+        )
+        if options[label]:
+            resolutions[candidate["id"]] = options[label]
+
+    resolved = extract_dbt_semantic_document(
+        import_result["manifest"], relationship_resolutions=resolutions
+    )
+    resolved["document"]["notes"] = import_result["notes"]
+    yaml_path = custom_context / "metric_definitions.yaml"
+    resolved["document"] = _preserve_saved_notes(resolved["document"], yaml_path)
+    signature = json.dumps(resolutions, sort_keys=True)
+    if st.session_state.get("dbt_resolution_signature") != signature:
+        st.session_state.dbt_resolution_signature = signature
+        st.session_state.pop("dbt_metric_review", None)
+
+    if not resolved["document"]["metrics"]:
+        st.info(
+            "No manifest metrics were present; model entities, dimensions, "
+            "measures, and relationships can still be saved."
+        )
+    st.subheader("Extracted dbt Semantic Definitions")
+    dbt_review = st.text_area(
+        "Review dbt definitions",
+        value=render_metric_definitions_yaml(resolved["document"]),
+        height=500,
+        key="dbt_metric_review",
+    )
+
+    has_grounding_issues = bool(unknown_tables or unknown_columns)
+    grounding_acknowledged = not has_grounding_issues
+    if has_grounding_issues:
+        grounding_acknowledged = st.checkbox(
+            "I acknowledge these references are not present in the discovered "
+            "schema and want to save anyway.",
+            key="structured_import_grounding_ack",
+        )
+    all_relationships_resolved = not resolved["unresolved_keys"]
+    save_col, discard_col = st.columns(2)
+    with save_col:
+        if st.button(
+            "Save Imported Definitions",
+            disabled=not grounding_acknowledged or not all_relationships_resolved,
+        ):
+            try:
+                _save_sql_metric_document(
+                    yaml_path, dbt_review, resolved["document"]
+                )
+                st.session_state.pop("structured_import_result", None)
+                st.session_state.pop("dbt_resolution_signature", None)
+                st.success("✅ dbt definitions saved")
+                st.rerun()
+            except Exception as error:
+                st.error(f"Failed to save dbt import: {error}")
+    with discard_col:
+        if st.button("Discard Import"):
+            st.session_state.pop("structured_import_result", None)
+            st.session_state.pop("structured_import_grounding_ack", None)
+            st.session_state.pop("dbt_resolution_signature", None)
+            st.rerun()
 
 
 def _show_table_catalog(custom_context):
@@ -840,27 +893,29 @@ def show():
                             None,
                         )
                         if structured_format.startswith("dbt manifest"):
-                            metrics = parse_dbt_manifest_metrics(json.loads(file_content))
-                            if not metrics:
+                            manifest = json.loads(file_content)
+                            extraction = extract_dbt_semantic_document(manifest)
+                            if extraction is None:
                                 st.warning(
-                                    "No metric definitions found in this supported "
-                                    "dbt manifest shape."
+                                    "Only dbt manifest schema versions v10-v11 are supported."
                                 )
+                                st.stop()
+                            document = extraction["document"]
+                            if not document["entities"]:
+                                st.warning("No model entities found in this dbt manifest.")
                                 st.stop()
                             schema_df = st.session_state.get("schema_df")
                             if schema_df is None:
                                 schema_df = st.session_state.get("raw_schema_df")
-                            unknown_tables, unknown_columns = _schema_grounding_issues(
-                                metrics, schema_df
+                            unknown_tables, unknown_columns = schema_grounding_issues(
+                                [extraction["grounding"]], schema_df
                             )
                             st.session_state.structured_import_result = {
-                                "metric_definitions": render_metric_markdown(metrics),
-                                "layer_suggestions": [],
-                                "import_warnings": [
-                                    metric["name"]
-                                    for metric in metrics
-                                    if metric.get("sql_parse_failed")
-                                ],
+                                "kind": "dbt_layered",
+                                "manifest": manifest,
+                                "notes": document["notes"],
+                                "warnings": extraction["warnings"],
+                                "unresolved_keys": extraction["unresolved_keys"],
                                 "unknown_tables": unknown_tables,
                                 "unknown_columns": unknown_columns,
                             }
@@ -1028,7 +1083,7 @@ def show():
                         if schema_df is None:
                             schema_df = st.session_state.get("raw_schema_df")
                         unknown_tables, unknown_columns = (
-                            _schema_grounding_issues(metrics, schema_df)
+                            schema_grounding_issues(metrics, schema_df)
                         )
                         if unknown_tables:
                             st.warning(
@@ -1094,6 +1149,9 @@ def show():
 
             if st.session_state.get("structured_import_result"):
                 import_result = st.session_state.structured_import_result
+                if import_result.get("kind") == "dbt_layered":
+                    _render_dbt_layered_import(import_result, custom_context)
+                    st.stop()
                 unknown_tables = import_result.get("unknown_tables", [])
                 unknown_columns = import_result.get("unknown_columns", [])
                 has_grounding_issues = bool(unknown_tables or unknown_columns)
@@ -1213,7 +1271,7 @@ def show():
                     schema_df = st.session_state.get("schema_df")
                     if schema_df is None:
                         schema_df = st.session_state.get("raw_schema_df")
-                    unknown_tables, unknown_columns = _schema_grounding_issues(
+                    unknown_tables, unknown_columns = schema_grounding_issues(
                         [extraction["grounding"]], schema_df
                     )
                     st.session_state.sql_import_result = {
