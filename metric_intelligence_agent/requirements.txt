@@ -4,3 +4,4 @@ pandas
 langgraph
 streamlit
 sqlglot
+PyYAML

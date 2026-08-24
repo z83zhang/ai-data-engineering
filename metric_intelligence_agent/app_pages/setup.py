@@ -10,10 +10,20 @@ from agent import client
 from connectors.duckdb import DuckDBConnector
 from connectors.sqlite import SQLiteConnector
 from metric_import import (
+    empty_metric_document,
+    load_metric_definitions_yaml,
+    merge_metric_documents,
     parse_dbt_manifest_metrics,
-    parse_sql_metric_facts,
+    parse_metric_definitions_yaml,
     merge_metric_definitions,
+    render_metric_definitions_yaml,
     render_metric_markdown,
+    save_metric_definitions_yaml,
+    update_metric_notes,
+)
+from sql_semantic_import import (
+    apply_confirmed_entity_keys,
+    extract_sql_semantic_document,
 )
 
 
@@ -59,7 +69,10 @@ def _tab1_complete():
 
 def _tab2_complete():
     custom_context = Path(__file__).resolve().parents[1] / "custom_context"
-    return (custom_context / "metric_definitions.md").is_file()
+    return any(
+        (custom_context / filename).is_file()
+        for filename in ("metric_definitions.yaml", "metric_definitions.md")
+    )
 
 
 def _validate_catalog(text, schema_df):
@@ -179,6 +192,34 @@ def _metric_prose(facts, name_hint, trust_level):
 def _save_metric_definitions(metric_path, content):
     existing = metric_path.read_text(encoding="utf-8") if metric_path.is_file() else ""
     _save_catalog(metric_path, merge_metric_definitions(existing, content))
+
+
+def _save_sql_metric_document(metric_path, reviewed_yaml, confirmed_document):
+    incoming = parse_metric_definitions_yaml(reviewed_yaml)
+    incoming = apply_confirmed_entity_keys(incoming, confirmed_document)
+    existing = (
+        load_metric_definitions_yaml(metric_path)
+        if metric_path.is_file()
+        else empty_metric_document()
+    )
+    merged = merge_metric_documents(existing, incoming)
+    for metric_name, notes in incoming["notes"].items():
+        merged = update_metric_notes(merged, metric_name, **notes)
+    if metric_path.is_file():
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        shutil.copy2(metric_path, metric_path.with_suffix(f".{timestamp}.bak"))
+    save_metric_definitions_yaml(metric_path, merged)
+
+
+def _preserve_saved_notes(document, metric_path):
+    if not metric_path.is_file():
+        return document
+    existing = load_metric_definitions_yaml(metric_path)
+    saved_notes = {name.casefold(): notes for name, notes in existing["notes"].items()}
+    for name in document["metrics"]:
+        if name.casefold() in saved_notes:
+            document["notes"][name] = saved_notes[name.casefold()]
+    return document
 
 
 def _show_table_catalog(custom_context):
@@ -1130,6 +1171,7 @@ def show():
                         )
                         st.rerun()
         with source_tab2:
+            sql_metric_path = custom_context / "metric_definitions.yaml"
             if st.session_state.pop("sql_import_saved", False):
                 st.session_state.pop("metric_sql_input", None)
                 st.session_state.pop("sql_metric_name_hint", None)
@@ -1148,49 +1190,38 @@ def show():
             if st.button("Import SQL", disabled=not pasted_sql.strip()):
                 try:
                     st.session_state.pop("sql_import_grounding_ack", None)
-                    metric_facts = parse_sql_metric_facts(pasted_sql)
-                    if not metric_facts:
-                        raise ValueError(
-                            "No aggregate metric expressions were found in the SELECT list."
-                        )
-                    metrics = []
-                    multiple_metrics = len(metric_facts) > 1
+                    st.session_state.pop("sql_key_resolutions", None)
+                    extraction = extract_sql_semantic_document(
+                        pasted_sql, metric_name_hint.strip()
+                    )
+                    metrics = extraction["document"]["metrics"]
                     with st.spinner("Writing metric descriptions..."):
-                        for facts in metric_facts:
-                            prose_hint = facts["name"] or (
-                                "" if multiple_metrics else metric_name_hint
-                            )
-                            prose = _metric_prose(facts, prose_hint, sql_trust)
-                            metrics.append(
-                                {
-                                    "name": (
-                                        facts["name"]
-                                        if multiple_metrics
-                                        else metric_name_hint.strip()
-                                        or facts["name"]
-                                        or prose["name"]
-                                    ),
-                                    "description": prose["description"],
-                                    "formula": facts["formula"],
-                                    "source_tables": facts["source_tables"],
-                                    "column_references": facts["column_references"],
-                                    "join_conditions": facts["join_conditions"],
-                                    "filters": facts["filters"],
-                                    "grain": ", ".join(facts["group_by"])
-                                    or prose["grain"],
-                                    "business_rules": prose["business_rules"],
-                                    "trust_level": sql_trust,
-                                }
-                            )
+                        for name, metric in metrics.items():
+                            prose_facts = {
+                                "name": name,
+                                "metric": metric,
+                                "entities": extraction["document"]["entities"],
+                                "measures": extraction["document"]["measures"],
+                            }
+                            prose = _metric_prose(prose_facts, name, sql_trust)
+                            extraction["document"]["notes"][name] = {
+                                "description": prose["description"],
+                                "business_rules": prose["business_rules"],
+                                "caveats": "",
+                                "ambiguity_rules": "",
+                            }
                     schema_df = st.session_state.get("schema_df")
                     if schema_df is None:
                         schema_df = st.session_state.get("raw_schema_df")
                     unknown_tables, unknown_columns = _schema_grounding_issues(
-                        metrics, schema_df
+                        [extraction["grounding"]], schema_df
                     )
                     st.session_state.sql_import_result = {
-                        "metric_definitions": render_metric_markdown(metrics),
-                        "metric_count": len(metrics),
+                        "sql": pasted_sql,
+                        "metric_name_hint": metric_name_hint.strip(),
+                        "notes": extraction["document"]["notes"],
+                        "metric_count": extraction["metric_count"],
+                        "unresolved_keys": extraction["unresolved_keys"],
                         "unknown_tables": unknown_tables,
                         "unknown_columns": unknown_columns,
                     }
@@ -1217,10 +1248,56 @@ def show():
                         "Source columns not found in the connected schema: "
                         f"{unknown_columns}"
                     )
+                resolutions = {}
+                unresolved_keys = sql_result.get("unresolved_keys", [])
+                if unresolved_keys:
+                    st.warning(
+                        "SQL establishes key usage but not every key classification "
+                        "or relationship direction. Confirm each item before saving."
+                    )
+                for candidate in unresolved_keys:
+                    if candidate["kind"] == "relationship":
+                        left = candidate["left"]
+                        right = candidate["right"]
+                        options = {
+                            "Select relationship direction": None,
+                            f"{left['entity']}.{left['column']} references {right['entity']}.{right['column']}": "left_references_right",
+                            f"{right['entity']}.{right['column']} references {left['entity']}.{left['column']}": "right_references_left",
+                        }
+                        label = st.selectbox(
+                            f"Relationship: {left['entity']}.{left['column']} = {right['entity']}.{right['column']}",
+                            list(options),
+                            key=f"sql_resolution_{candidate['id']}",
+                        )
+                        if options[label]:
+                            resolutions[candidate["id"]] = options[label]
+                    else:
+                        options = ["Select key type", *candidate["choices"]]
+                        selection = st.selectbox(
+                            f"Key classification: {candidate['entity']}.{candidate['column']}",
+                            options,
+                            key=f"sql_resolution_{candidate['id']}",
+                        )
+                        if selection != "Select key type":
+                            resolutions[candidate["id"]] = selection
+
+                resolved = extract_sql_semantic_document(
+                    sql_result["sql"],
+                    sql_result["metric_name_hint"],
+                    key_resolutions=resolutions,
+                )
+                resolved["document"]["notes"] = sql_result["notes"]
+                resolved["document"] = _preserve_saved_notes(
+                    resolved["document"], sql_metric_path
+                )
+                resolution_signature = json.dumps(resolutions, sort_keys=True)
+                if st.session_state.get("sql_resolution_signature") != resolution_signature:
+                    st.session_state.sql_resolution_signature = resolution_signature
+                    st.session_state.pop("sql_metric_review", None)
                 st.subheader("Extracted Metric Definition")
                 sql_review = st.text_area(
                     "Review metric definition",
-                    value=sql_result["metric_definitions"],
+                    value=render_metric_definitions_yaml(resolved["document"]),
                     height=400,
                     key="sql_metric_review",
                 )
@@ -1232,25 +1309,45 @@ def show():
                         "discovered schema and want to save anyway.",
                         key="sql_import_grounding_ack",
                     )
+                all_keys_resolved = not resolved["unresolved_keys"]
                 save_col, discard_col = st.columns(2)
                 with save_col:
-                    if st.button("Save SQL Metric", disabled=not acknowledged):
-                        _save_metric_definitions(metric_path, sql_review)
-                        st.session_state.pop("sql_import_result", None)
-                        st.session_state.sql_import_saved = True
-                        st.rerun()
+                    if st.button(
+                        "Save SQL Metric",
+                        disabled=not acknowledged or not all_keys_resolved,
+                    ):
+                        try:
+                            _save_sql_metric_document(
+                                sql_metric_path,
+                                sql_review,
+                                resolved["document"],
+                            )
+                            st.session_state.pop("sql_import_result", None)
+                            st.session_state.pop("sql_resolution_signature", None)
+                            st.session_state.sql_import_saved = True
+                            st.rerun()
+                        except Exception as error:
+                            st.error(f"Failed to save SQL import: {error}")
                 with discard_col:
                     if st.button("Discard SQL Import"):
                         st.session_state.pop("sql_import_result", None)
                         st.session_state.pop("sql_import_grounding_ack", None)
+                        st.session_state.pop("sql_resolution_signature", None)
                         st.rerun()
         with source_tab3:
             st.info("Manual input — coming in next step.")
 
-        if metric_path.is_file():
+        sql_metric_path = custom_context / "metric_definitions.yaml"
+        if metric_path.is_file() or sql_metric_path.is_file():
             st.divider()
             st.subheader("Current Metric Definitions")
-            st.markdown(metric_path.read_text(encoding="utf-8"))
+            if sql_metric_path.is_file():
+                st.code(
+                    sql_metric_path.read_text(encoding="utf-8"),
+                    language="yaml",
+                )
+            if metric_path.is_file():
+                st.markdown(metric_path.read_text(encoding="utf-8"))
 
     with validate_tab:
         st.info(
