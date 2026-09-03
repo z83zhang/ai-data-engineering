@@ -16,15 +16,17 @@ from metric_import import (
     load_metric_definitions_yaml,
     merge_metric_documents,
     parse_metric_definitions_yaml,
-    merge_metric_definitions,
     render_metric_definitions_yaml,
-    render_metric_markdown,
     save_metric_definitions_yaml,
     update_metric_notes,
 )
 from sql_semantic_import import (
     apply_confirmed_entity_keys,
     extract_sql_semantic_document,
+)
+from structured_semantic_import import (
+    build_structured_semantic_document,
+    extract_structured_semantic_facts,
 )
 
 
@@ -37,21 +39,6 @@ CONNECTION_TYPES = [
 ]
 
 COMING_SOON_TYPES = CONNECTION_TYPES[2:]
-
-METRIC_MARKDOWN_SKELETON = """# Metric Definitions
-
-## [Metric name from extracted source]
-
-- Definition: [Extracted description or empty]
-- Formula: [Extracted formula or empty]
-- Source tables: [Extracted table names or empty]
-- Column references: [Extracted table and column pairs or empty]
-- Join conditions: [Extracted join conditions or empty]
-- Filters: [Extracted filters or empty]
-- Grain: [Extracted grain or empty]
-- Trust level: [Extracted trust information or empty]
-"""
-
 
 def _table_count(schema_df):
     columns = ["table_name"]
@@ -150,11 +137,6 @@ def _metric_prose(facts, name_hint, trust_level):
         temperature=0,
     )
     return json.loads(response.choices[0].message.content)
-
-
-def _save_metric_definitions(metric_path, content):
-    existing = metric_path.read_text(encoding="utf-8") if metric_path.is_file() else ""
-    _save_catalog(metric_path, merge_metric_definitions(existing, content))
 
 
 def _save_sql_metric_document(metric_path, reviewed_yaml, confirmed_document):
@@ -272,6 +254,106 @@ def _render_dbt_layered_import(import_result, custom_context):
             st.session_state.pop("structured_import_result", None)
             st.session_state.pop("structured_import_grounding_ack", None)
             st.session_state.pop("dbt_resolution_signature", None)
+            st.rerun()
+
+
+def _render_other_layered_import(import_result, custom_context):
+    resolutions = {}
+    unresolved_keys = import_result.get("unresolved_keys", [])
+    if unresolved_keys:
+        st.warning(
+            "Some relationships do not have a source-declared direction. "
+            "Confirm each before saving."
+        )
+    for candidate in unresolved_keys:
+        left = candidate["left"]
+        right = candidate["right"]
+        options = {
+            "Select relationship direction": None,
+            f"{left['entity']}.{left['column']} references {right['entity']}.{right['column']}": "left_references_right",
+            f"{right['entity']}.{right['column']} references {left['entity']}.{left['column']}": "right_references_left",
+        }
+        label = st.selectbox(
+            f"Relationship: {left['entity']}.{left['column']} = {right['entity']}.{right['column']}",
+            list(options),
+            key=f"structured_resolution_{candidate['id']}",
+        )
+        if options[label]:
+            resolutions[candidate["id"]] = options[label]
+
+    resolved = build_structured_semantic_document(
+        import_result["extraction"], relationship_resolutions=resolutions
+    )
+    yaml_path = custom_context / "metric_definitions.yaml"
+    resolved["document"] = _preserve_saved_notes(resolved["document"], yaml_path)
+    signature = json.dumps(resolutions, sort_keys=True)
+    if st.session_state.get("structured_resolution_signature") != signature:
+        st.session_state.structured_resolution_signature = signature
+        st.session_state.pop("structured_metric_review", None)
+
+    for warning in resolved["warnings"]:
+        st.warning(warning)
+    unknown_tables = import_result.get("unknown_tables", [])
+    unknown_columns = import_result.get("unknown_columns", [])
+    if unknown_tables:
+        st.warning(
+            "Source tables not found in the connected schema: "
+            f"{unknown_tables}"
+        )
+    if unknown_columns:
+        st.warning(
+            "Source columns not found in the connected schema: "
+            f"{unknown_columns}"
+        )
+
+    st.subheader("Extracted Semantic Definitions")
+    metric_review = st.text_area(
+        "Review structured definitions",
+        value=render_metric_definitions_yaml(resolved["document"]),
+        height=500,
+        key="structured_metric_review",
+    )
+
+    if resolved.get("layer_suggestions"):
+        suggestions = ", ".join(
+            f"{item['table_name']}: {item['suggested_layer']}"
+            for item in resolved["layer_suggestions"]
+        )
+        st.info(
+            "Source-provided layer suggestions (informational only; not saved): "
+            f"{suggestions}"
+        )
+
+    has_grounding_issues = bool(unknown_tables or unknown_columns)
+    grounding_acknowledged = not has_grounding_issues
+    if has_grounding_issues:
+        grounding_acknowledged = st.checkbox(
+            "I acknowledge these references are not present in the discovered "
+            "schema and want to save anyway.",
+            key="structured_import_grounding_ack",
+        )
+    all_relationships_resolved = not resolved["unresolved_keys"]
+    save_col, discard_col = st.columns(2)
+    with save_col:
+        if st.button(
+            "Save Imported Definitions",
+            disabled=not grounding_acknowledged or not all_relationships_resolved,
+        ):
+            try:
+                _save_sql_metric_document(
+                    yaml_path, metric_review, resolved["document"]
+                )
+                st.session_state.pop("structured_import_result", None)
+                st.session_state.pop("structured_resolution_signature", None)
+                st.success("âœ… Structured definitions saved")
+                st.rerun()
+            except Exception as error:
+                st.error(f"Failed to save structured import: {error}")
+    with discard_col:
+        if st.button("Discard Import"):
+            st.session_state.pop("structured_import_result", None)
+            st.session_state.pop("structured_import_grounding_ack", None)
+            st.session_state.pop("structured_resolution_signature", None)
             st.rerun()
 
 
@@ -821,9 +903,10 @@ def show():
             )
             st.stop()
 
-        metric_path = custom_context / "metric_definitions.md"
-        if metric_path.is_file():
-            st.success("✅ metric_definitions.md saved")
+        yaml_metric_path = custom_context / "metric_definitions.yaml"
+        legacy_metric_path = custom_context / "metric_definitions.md"
+        if yaml_metric_path.is_file():
+            st.success("✅ metric_definitions.yaml saved")
         else:
             st.info(
                 "No metric definitions yet. "
@@ -924,226 +1007,33 @@ def show():
                             source_content = file_content
 
                         with st.spinner("Extracting metric definitions..."):
-                            extraction_response = client.chat.completions.create(
-                                model="gpt-4o",
-                                messages=[
-                                    {
-                                        "role": "system",
-                                        "content": (
-                                            "Extract ONLY what is explicitly defined "
-                                            "in the provided file. Do not infer, "
-                                            "generate, or use knowledge from your "
-                                            "training data. If no metrics exist in "
-                                            "the file, return an empty metrics array. "
-                                            "Each field must be populated from the "
-                                            "file content only — use empty string if "
-                                            "not found. Extract every explicit "
-                                            "table and column reference as separate "
-                                            "table_name/column_name pairs. A "
-                                            "source-provided materialization or layer "
-                                            "may be returned only as suggested_layer "
-                                            "for analyst information; it is never "
-                                            "authoritative."
-                                        ),
-                                    },
-                                    {
-                                        "role": "user",
-                                        "content": (
-                                            f"Source format:\n{structured_format}\n\n"
-                                            "Structured file content:\n"
-                                            f"{source_content}"
-                                        ),
-                                    },
-                                ],
-                                response_format={
-                                    "type": "json_schema",
-                                    "json_schema": {
-                                        "name": "structured_metric_extraction",
-                                        "strict": True,
-                                        "schema": {
-                                            "type": "object",
-                                            "properties": {
-                                                "metrics": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "name": {"type": "string"},
-                                                            "description": {
-                                                                "type": "string"
-                                                            },
-                                                            "formula": {
-                                                                "type": "string"
-                                                            },
-                                                            "source_tables": {
-                                                                "type": "array",
-                                                                "items": {
-                                                                    "type": "string"
-                                                                },
-                                                            },
-                                                            "column_references": {
-                                                                "type": "array",
-                                                                "items": {
-                                                                    "type": "object",
-                                                                    "properties": {
-                                                                        "table_name": {
-                                                                            "type": "string"
-                                                                        },
-                                                                        "column_name": {
-                                                                            "type": "string"
-                                                                        },
-                                                                    },
-                                                                    "required": [
-                                                                        "table_name",
-                                                                        "column_name",
-                                                                    ],
-                                                                    "additionalProperties": False,
-                                                                },
-                                                            },
-                                                            "join_conditions": {
-                                                                "type": "array",
-                                                                "items": {
-                                                                    "type": "string"
-                                                                },
-                                                            },
-                                                            "filters": {
-                                                                "type": "array",
-                                                                "items": {
-                                                                    "type": "string"
-                                                                },
-                                                            },
-                                                            "grain": {
-                                                                "type": "string"
-                                                            },
-                                                            "trust_level": {
-                                                                "type": "string"
-                                                            },
-                                                        },
-                                                        "required": [
-                                                            "name",
-                                                            "description",
-                                                            "formula",
-                                                            "source_tables",
-                                                            "column_references",
-                                                            "join_conditions",
-                                                            "filters",
-                                                            "grain",
-                                                            "trust_level",
-                                                        ],
-                                                        "additionalProperties": False,
-                                                    },
-                                                },
-                                                "table_updates": {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "table_name": {
-                                                                "type": "string"
-                                                            },
-                                                            "suggested_layer": {
-                                                                "type": "string"
-                                                            },
-                                                            "grain": {
-                                                                "type": "string"
-                                                            },
-                                                            "notes": {
-                                                                "type": "string"
-                                                            },
-                                                        },
-                                                        "required": [
-                                                            "table_name",
-                                                            "suggested_layer",
-                                                            "grain",
-                                                            "notes",
-                                                        ],
-                                                        "additionalProperties": False,
-                                                    },
-                                                },
-                                            },
-                                            "required": ["metrics", "table_updates"],
-                                            "additionalProperties": False,
-                                        },
-                                    },
-                                },
-                                temperature=0,
+                            extraction = extract_structured_semantic_facts(
+                                source_content,
+                                structured_format,
+                                client,
                             )
-                        extraction = json.loads(
-                            extraction_response.choices[0].message.content
-                        )
-                        metrics = extraction["metrics"]
-                        if not metrics:
+                        layered = build_structured_semantic_document(extraction)
+                        if not layered["document"]["entities"]:
                             st.warning(
-                                "No metric definitions found in this file. "
-                                "Choose a file that explicitly defines metrics."
+                                "No semantic entities found in this file. Choose a "
+                                "file that explicitly declares semantic definitions."
                             )
                             st.stop()
 
                         schema_df = st.session_state.get("schema_df")
                         if schema_df is None:
                             schema_df = st.session_state.get("raw_schema_df")
-                        unknown_tables, unknown_columns = (
-                            schema_grounding_issues(metrics, schema_df)
+                        unknown_tables, unknown_columns = schema_grounding_issues(
+                            [layered["grounding"]], schema_df
                         )
-                        if unknown_tables:
-                            st.warning(
-                                "Potential hallucination: source tables not "
-                                f"found in the connected schema: {unknown_tables}"
-                            )
-                        if unknown_columns:
-                            st.warning(
-                                "Potential hallucination: source columns not "
-                                f"found in the connected schema: {unknown_columns}"
-                            )
-
-                        with st.spinner("Formatting metric definitions..."):
-                            markdown_response = client.chat.completions.create(
-                                model="gpt-4o",
-                                messages=[
-                                    {
-                                        "role": "system",
-                                        "content": (
-                                            "Convert the provided structured "
-                                            "metric extraction into markdown. Use "
-                                            "the template for structure only and "
-                                            "do not add, infer, or alter facts. "
-                                            "Return only complete markdown with no "
-                                            "code fences."
-                                        ),
-                                    },
-                                    {
-                                        "role": "user",
-                                        "content": (
-                                            "Structured extraction:\n"
-                                            f"{json.dumps(metrics, indent=2)}\n\n"
-                                            "Markdown structure template:\n"
-                                            f"{METRIC_MARKDOWN_SKELETON}"
-                                        ),
-                                    },
-                                ],
-                                temperature=0,
-                            )
-                        metric_definitions = _clean_catalog_response(
-                            markdown_response.choices[0].message.content.strip()
-                        )
-
-                        layer_suggestions = []
-                        for update in extraction["table_updates"]:
-                            if update["suggested_layer"]:
-                                layer_suggestions.append(
-                                    {
-                                        "table_name": update["table_name"],
-                                        "suggested_layer": update[
-                                            "suggested_layer"
-                                        ],
-                                    }
-                                )
                         st.session_state.structured_import_result = {
-                            "metric_definitions": metric_definitions,
-                            "layer_suggestions": layer_suggestions,
+                            "kind": "other_layered",
+                            "extraction": extraction,
+                            "unresolved_keys": layered["unresolved_keys"],
                             "unknown_tables": unknown_tables,
                             "unknown_columns": unknown_columns,
                         }
+                        st.rerun()
                     except Exception as error:
                         st.error(f"Failed to import structured file: {error}")
 
@@ -1152,82 +1042,9 @@ def show():
                 if import_result.get("kind") == "dbt_layered":
                     _render_dbt_layered_import(import_result, custom_context)
                     st.stop()
-                unknown_tables = import_result.get("unknown_tables", [])
-                unknown_columns = import_result.get("unknown_columns", [])
-                has_grounding_issues = bool(unknown_tables or unknown_columns)
-                for metric_name in import_result.get("import_warnings", []):
-                    st.warning(
-                        f"SQL could not be parsed for {metric_name or 'this metric'} — "
-                        "formula, filters, and joins were left blank; complete them "
-                        "manually or use the SQL-paste tab instead."
-                    )
-                if unknown_tables:
-                    st.warning(
-                        "Source tables not found in the connected schema: "
-                        f"{unknown_tables}"
-                    )
-                if unknown_columns:
-                    st.warning(
-                        "Source columns not found in the connected schema: "
-                        f"{unknown_columns}"
-                    )
-
-                st.subheader("Extracted Metric Definitions")
-                st.markdown(import_result["metric_definitions"])
-                with st.expander("Edit manually"):
-                    metrics_review = st.text_area(
-                        "Edit metric definitions",
-                        value=import_result["metric_definitions"],
-                        height=400,
-                    )
-
-                if import_result.get("layer_suggestions"):
-                    suggestions = ", ".join(
-                        f"{item['table_name']}: {item['suggested_layer']}"
-                        for item in import_result["layer_suggestions"]
-                    )
-                    st.info(
-                        "Source-provided layer suggestions (informational "
-                        f"only; not saved): {suggestions}"
-                    )
-
-                grounding_acknowledged = not has_grounding_issues
-                if has_grounding_issues:
-                    grounding_acknowledged = st.checkbox(
-                        "I acknowledge these references are not present in "
-                        "the discovered schema and want to save anyway.",
-                        key="structured_import_grounding_ack",
-                    )
-
-                save_col, discard_col = st.columns(2)
-                with save_col:
-                    if st.button(
-                        "Save Imported Definitions",
-                        disabled=not grounding_acknowledged,
-                    ):
-                        try:
-                            metric_path = (
-                                custom_context / "metric_definitions.md"
-                            )
-                            _save_metric_definitions(metric_path, metrics_review)
-                            st.session_state.pop(
-                                "structured_import_result",
-                                None,
-                            )
-                            st.success("✅ Structured definitions saved")
-                            st.rerun()
-                        except Exception as error:
-                            st.error(
-                                f"Failed to save structured import: {error}"
-                            )
-                with discard_col:
-                    if st.button("Discard Import"):
-                        st.session_state.pop("structured_import_result", None)
-                        st.session_state.pop(
-                            "structured_import_grounding_ack",
-                            None,
-                        )
-                        st.rerun()
+                if import_result.get("kind") == "other_layered":
+                    _render_other_layered_import(import_result, custom_context)
+                    st.stop()
         with source_tab2:
             sql_metric_path = custom_context / "metric_definitions.yaml"
             if st.session_state.pop("sql_import_saved", False):
@@ -1396,7 +1213,7 @@ def show():
             st.info("Manual input — coming in next step.")
 
         sql_metric_path = custom_context / "metric_definitions.yaml"
-        if metric_path.is_file() or sql_metric_path.is_file():
+        if legacy_metric_path.is_file() or sql_metric_path.is_file():
             st.divider()
             st.subheader("Current Metric Definitions")
             if sql_metric_path.is_file():
@@ -1404,8 +1221,8 @@ def show():
                     sql_metric_path.read_text(encoding="utf-8"),
                     language="yaml",
                 )
-            if metric_path.is_file():
-                st.markdown(metric_path.read_text(encoding="utf-8"))
+            elif legacy_metric_path.is_file():
+                st.markdown(legacy_metric_path.read_text(encoding="utf-8"))
 
     with validate_tab:
         st.info(

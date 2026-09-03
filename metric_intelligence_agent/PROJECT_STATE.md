@@ -12,11 +12,12 @@
 - **Evaluation logging.** Interactive and evaluation runs share one runner and are logged locally with SQL, attempt count, technical and semantic outcomes, latency, token counts, cost, detected layer, and human-review fields.
 - **Context separation.** Bundled demo context and generated custom context use separate locations. Setup writes do not modify the bundled demo context.
 - **Custom file-database connections.** DuckDB files open read-only. SQLite files are attached read-only through DuckDB. Both connectors test connections and discover schema through source-specific paths.
+- **dbt-manifest metric import.** Manifest schema v10-v11 is parsed deterministically into the layered ADR-010 format of entities, dimensions, measures, and metrics. Relationship direction resolves from declared relationships tests or schema-declared foreign-key constraints (`to`/`to_columns` or legacy expressions); genuinely ambiguous or absent direction requires explicit analyst confirmation before saving.
+- **SQL and other structured metric import.** Pipeline/dashboard SQL is parsed deterministically for factual metric content, with the LLM limited to business-facing prose. LookML, Cube, and similar structured formats use grounded LLM extraction into the layered ADR-010 format. Explicit source-native relationship direction is retained; unresolved direction requires analyst confirmation. All paths ground tables and columns, require acknowledgment for schema mismatches, support YAML review, and save metric definitions only.
 
 ### Present but partially complete
 
 - **Custom-source setup.** The UI can connect a supported source, discover schema, generate and save schema context, collect and persist analyst table-layer classifications, generate/review/refine a table catalog, enrich it from supplied documentation, and create backups when saving.
-- **Metric import.** Pipeline/dashboard SQL is parsed deterministically for factual metric content, with the LLM limited to business-facing prose. dbt manifest v10-v11 metrics use deterministic manifest and model-SQL parsing. LookML, Cube, and other structured inputs use grounded LLM extraction. All paths validate table and column references, require acknowledgment before saving unresolved references, support review/editing, and save metric definitions only; the Data Source tab remains the sole table-catalog writer.
 - **Custom source switching infrastructure.** The application has a source-switch operation that replaces the connection, context, graph, and source identity while clearing question-specific state and preserving evaluation logging. The setup UI can switch from an already active custom source back to the demo, but it cannot activate or reload a custom source.
 - **Definition and assumption disclosure.** The explanation prompt requests the metric definition and assumptions, but the output is free-form LLM prose and is not guaranteed or structurally represented.
 - **Database-agnostic structure.** Business context is externalized and connectors share a common interface, but SQL wording, custom layer detection, monitoring, and evaluation are not yet fully source-agnostic.
@@ -71,8 +72,8 @@ Recent repository activity and the remaining setup placeholders are concentrated
 ## Recently Completed Significant Work
 
 - Added the custom database setup foundation, read-only DuckDB and SQLite connectors, schema discovery, catalog generation/review, and persistent layer classifications.
-- Added two-stage flexible structured metric extraction with a content-free formatting skeleton, table-and-column grounding, acknowledgment-gated saving, and analyst-layer preservation.
-- Added deterministic pipeline/dashboard SQL import, including separate metrics for multiple aliased aggregate expressions, and dbt manifest v10-v11 metric import. Metric imports now write metric definitions only; table-catalog ownership remains exclusively with Data Source setup.
+- Added deterministic pipeline/dashboard SQL import, including separate metrics for multiple aliased aggregate expressions. Added dbt manifest v10-v11 import that populates layered ADR-010 entities, dimensions, measures, and metrics, resolves direction from declared relationship signals, and requires analyst confirmation when direction remains unresolved. Metric imports write metric definitions only; table-catalog ownership remains exclusively with Data Source setup.
+- Rewired grounded LookML, Cube, and similar structured-format imports to populate layered ADR-010 YAML, retain explicit source-declared relationship direction, gate ambiguous direction on analyst confirmation, ground table-and-column references before saving, preserve analyst-owned layers, and skip or flag metric-to-metric composition.
 - Added case-insensitive metric-heading identity across metric-definition save paths: saving replaces every existing matching-name section with exactly one new definition.
 - Added distinct active-query-source and setup-connected-schema indicators so setup grounding state is visible without changing explicit activation behavior.
 - Added the Streamlit chat experience with caching, recent-question context, input validation, result metadata, and feedback.
@@ -85,3 +86,4 @@ Recent repository activity and the remaining setup placeholders are concentrated
 - Implement setup validation, explicit custom-source activation, and previous-session reload using the accepted source-switch boundary.
 - Correct context-dependent cache identity and create distinct logging/feedback attribution for cached interactions.
 - Make custom-source layer detection, monitoring, and evaluation source-aware.
+- Add connector-level foreign-key discovery as a separately reviewed extension; current structured-format imports use source-native relationship declarations and analyst confirmation because connector schema discovery exposes columns only.
