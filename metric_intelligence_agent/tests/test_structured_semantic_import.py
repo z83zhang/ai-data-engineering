@@ -14,6 +14,8 @@ from structured_semantic_import import extract_structured_semantic_facts
 
 class StructuredSemanticImportTests(unittest.TestCase):
     def test_handwritten_lookml_fixture_runs_through_grounded_extraction_contract(self):
+        # Contract/wiring coverage only: the mocked response cannot establish live-model
+        # consistency. Re-run this fixture repeatedly through the live app after prompt changes.
         source = fixture("orders.model.lkml").read_text(encoding="utf-8")
         client = mock_client(representative_extraction())
 
@@ -27,6 +29,24 @@ class StructuredSemanticImportTests(unittest.TestCase):
         self.assertTrue(request["response_format"]["json_schema"]["strict"])
         self.assertEqual(result["unresolved_keys"], [])
         self.assertIn("revenue", result["document"]["metrics"])
+
+    def test_prompt_makes_lookml_many_to_one_declaration_mechanical(self):
+        from structured_semantic_import import extraction_system_prompt
+
+        prompt = extraction_system_prompt()
+
+        self.assertIn("literal field relationship: many_to_one", prompt)
+        self.assertIn("always set explicitly_declared to true", prompt)
+        self.assertIn("explore/base-view side references", prompt)
+
+    def test_prompt_requires_queryable_measures_to_become_simple_metrics(self):
+        from structured_semantic_import import extraction_system_prompt
+
+        prompt = extraction_system_prompt()
+
+        self.assertIn("MUST produce both its namespaced measure", prompt)
+        self.assertIn("every entry under a Cube measures object", prompt)
+        self.assertIn("Do not leave metrics empty", prompt)
 
     def test_handwritten_cube_fixture_skips_composed_metric(self):
         source = fixture("orders_cube.js").read_text(encoding="utf-8")
@@ -51,6 +71,39 @@ class StructuredSemanticImportTests(unittest.TestCase):
             any("revenue_per_customer" in warning for warning in result["warnings"])
         )
 
+    def test_unrepresented_cube_measure_is_promoted_to_simple_metric(self):
+        extraction = representative_extraction()
+        extraction["metrics"] = []
+
+        result = build_structured_semantic_document(extraction)
+
+        self.assertEqual(
+            result["document"]["metrics"],
+            {
+                "revenue": {
+                    "type": "simple",
+                    "measure": "orders.revenue",
+                    "filters": [],
+                }
+            },
+        )
+
+    def test_composition_flag_prevents_measure_auto_promotion(self):
+        extraction = representative_extraction()
+        extraction["measures"][0]["name"] = "orders.revenue_per_customer"
+        extraction["metrics"] = [
+            metric_record(
+                "revenue_per_customer",
+                measure="",
+                requires_metric_composition=True,
+                composition_reason="references other metrics",
+            )
+        ]
+
+        result = build_structured_semantic_document(extraction)
+
+        self.assertEqual(result["document"]["metrics"], {})
+
     def test_declared_relationship_resolves_and_layered_document_validates(self):
         result = build_structured_semantic_document(representative_extraction())
 
@@ -66,6 +119,33 @@ class StructuredSemanticImportTests(unittest.TestCase):
         self.assertEqual(
             result["document"]["metrics"]["revenue"],
             {"type": "simple", "measure": "orders.revenue", "filters": []},
+        )
+        self.assertEqual(
+            result["document"]["measures"][0]["expression"], "SUM(amount)"
+        )
+
+    def test_lookml_table_placeholder_is_removed_before_aggregate_wrapping(self):
+        extraction = representative_extraction()
+        extraction["measures"][0]["expression"] = "${TABLE}.amount"
+
+        result = build_structured_semantic_document(extraction)
+
+        self.assertEqual(
+            result["document"]["measures"][0]["expression"], "SUM(amount)"
+        )
+        self.assertIn(
+            {"table_name": "main.orders", "column_name": "amount"},
+            result["grounding"]["column_references"],
+        )
+
+    def test_lookml_table_placeholder_is_removed_inside_existing_aggregate(self):
+        extraction = representative_extraction()
+        extraction["measures"][0]["expression"] = "SUM(${TABLE}.amount)"
+
+        result = build_structured_semantic_document(extraction)
+
+        self.assertEqual(
+            result["document"]["measures"][0]["expression"], "SUM(amount)"
         )
 
     def test_ambiguous_relationship_requires_confirmation(self):
@@ -194,7 +274,7 @@ def representative_extraction():
             {
                 "name": "orders.revenue",
                 "entity": "orders",
-                "expression": "SUM(amount)",
+                "expression": "amount",
                 "aggregation": "sum",
                 "re_aggregatable": True,
             }

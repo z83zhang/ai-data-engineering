@@ -1,4 +1,5 @@
 import json
+import re
 from copy import deepcopy
 
 from sqlglot import exp, parse_one
@@ -212,16 +213,36 @@ def extraction_system_prompt():
         "measures, metrics, and relationship declarations. Names for dimensions and "
         "measures must be namespaced as entity.name. Filters must reference a declared "
         "dimension or entity key, never a raw column. Store filter values without SQL "
-        "literal quotes. A source-defined LookML or Cube measure that is itself exposed "
-        "as a user-facing metric may be represented as a measure plus a simple metric "
-        "that directly references it. Mark requires_metric_composition true when a "
+        "literal quotes. Every measure expression must be the complete aggregate SQL "
+        "expression matching its aggregation, such as SUM(amount), not only the input "
+        "column amount. Normalize LookML ${TABLE}.column references to the bare column "
+        "name before returning the expression. Every independently resolvable measure "
+        "that the source exposes for querying MUST produce both its namespaced measure "
+        "record and a corresponding simple metric record that directly references that "
+        "measure; this is required, not optional. Mechanically, every LookML measure: "
+        "block and every entry under a Cube measures object is queryable and MUST produce "
+        "that simple metric unless its definition requires metric-to-metric composition. "
+        "For a composition-dependent entry, emit the flagged metric record but do not "
+        "emit it as an independently resolvable measure. Do not leave metrics empty when "
+        "an independently resolvable measure exists. Mark "
+        "requires_metric_composition true when a "
         "metric depends on another metric rather than directly on independently "
         "resolvable measures; such metrics will be skipped. Do not fabricate a "
         "replacement expression. For relationships, set explicitly_declared true and "
         "supply direction only when the source format explicitly declares cardinality "
         "or ownership (for example LookML relationship or Cube joins). SQL equality "
         "alone does not establish direction; return unresolved. Never infer relationship "
-        "direction from names or position. Suggested layers are informational only."
+        "direction from names or position. Apply this mechanical LookML rule: when a "
+        "LookML explore join block contains the literal field relationship: many_to_one, "
+        "always set explicitly_declared to true; use sql_on only to identify the two "
+        "entity/column sides, then set direction so the explore/base-view side references "
+        "the joined-view side. For relationship: one_to_many, always set "
+        "explicitly_declared to true and set direction so the joined-view side references "
+        "the explore/base-view side. Do not return explicitly_declared false for either "
+        "of those two declared LookML values. If the LookML relationship field is absent, "
+        "or its declared cardinality does not establish one foreign-key-owning side, use "
+        "direction unresolved; explicitly_declared indicates only whether the field was "
+        "present. Suggested layers are informational only."
     )
 
 
@@ -270,11 +291,17 @@ def build_structured_semantic_document(extraction, *, relationship_resolutions=N
         dimensions.append(dimension)
 
     measures = deepcopy(payload.get("measures") or [])
+    for measure in measures:
+        measure["expression"] = _aggregate_measure_expression(
+            measure.get("aggregation"), measure.get("expression")
+        )
     metrics = {}
     notes = {}
+    skipped_metric_names = set()
     for item in payload.get("metrics") or []:
         name = item.get("name") or "<unnamed>"
         if item.get("requires_metric_composition"):
+            skipped_metric_names.add(name.casefold())
             reason = item.get("composition_reason") or "metric-to-metric composition"
             warnings.append(f"Skipped metric {name!r}: {reason}.")
             continue
@@ -298,6 +325,9 @@ def build_structured_semantic_document(extraction, *, relationship_resolutions=N
             "caveats": item.get("caveats") or "",
             "ambiguity_rules": item.get("ambiguity_rules") or "",
         }
+    _promote_unrepresented_measures(
+        measures, metrics, notes, skipped_metric_names
+    )
 
     document = {
         "entities": entities,
@@ -410,6 +440,59 @@ def _expression_columns(expression):
     except Exception:
         return []
     return list(dict.fromkeys(column.name for column in tree.find_all(exp.Column)))
+
+
+def _aggregate_measure_expression(aggregation, expression):
+    value = str(expression or "").strip()
+    value = re.sub(r"\$\{\s*TABLE\s*\}\.", "", value, flags=re.IGNORECASE)
+    try:
+        parsed = parse_one(value) if value else None
+    except Exception:
+        parsed = None
+    if parsed is not None and any(parsed.find_all(exp.AggFunc)):
+        return value
+    if aggregation == "count" and not value:
+        return "COUNT(*)"
+    if not value:
+        return value
+    if aggregation == "count_distinct":
+        return f"COUNT(DISTINCT {value})"
+    if aggregation in {"sum", "avg", "count", "min", "max"}:
+        return f"{aggregation.upper()}({value})"
+    return value
+
+
+def _promote_unrepresented_measures(measures, metrics, notes, skipped_names):
+    represented = {
+        metric.get("measure", "").casefold()
+        for metric in metrics.values()
+        if metric.get("type") == "simple"
+    }
+    metric_names = {name.casefold() for name in metrics}
+    for measure in measures:
+        measure_name = measure.get("name", "")
+        if not measure_name or measure_name.casefold() in represented:
+            continue
+        metric_name = measure_name.rsplit(".", 1)[-1]
+        if metric_name.casefold() in skipped_names:
+            continue
+        if metric_name.casefold() in metric_names:
+            raise StructuredSemanticImportError(
+                f"Cannot promote measure {measure_name!r}: metric name "
+                f"{metric_name!r} is already used."
+            )
+        metrics[metric_name] = {
+            "type": "simple",
+            "measure": measure_name,
+            "filters": [],
+        }
+        notes[metric_name] = {
+            "description": "",
+            "business_rules": "",
+            "caveats": "",
+            "ambiguity_rules": "",
+        }
+        metric_names.add(metric_name.casefold())
 
 
 def _required(mapping, field, owner):
