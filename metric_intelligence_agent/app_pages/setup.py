@@ -12,6 +12,7 @@ from connectors.sqlite import SQLiteConnector
 from dbt_semantic_import import extract_dbt_semantic_document
 from grounding import schema_grounding_issues
 from metric_import import (
+    RelationshipConflictError,
     empty_metric_document,
     load_metric_definitions_yaml,
     merge_metric_documents,
@@ -139,7 +140,7 @@ def _metric_prose(facts, name_hint, trust_level):
     return json.loads(response.choices[0].message.content)
 
 
-def _save_sql_metric_document(metric_path, reviewed_yaml, confirmed_document):
+def _documents_for_metric_save(metric_path, reviewed_yaml, confirmed_document):
     incoming = parse_metric_definitions_yaml(reviewed_yaml)
     incoming = apply_confirmed_entity_keys(incoming, confirmed_document)
     existing = (
@@ -147,13 +148,91 @@ def _save_sql_metric_document(metric_path, reviewed_yaml, confirmed_document):
         if metric_path.is_file()
         else empty_metric_document()
     )
-    merged = merge_metric_documents(existing, incoming)
+    return existing, incoming
+
+
+def _save_sql_metric_document(
+    metric_path,
+    reviewed_yaml,
+    confirmed_document,
+    *,
+    confirm_relationship_conflicts=False,
+):
+    existing, incoming = _documents_for_metric_save(
+        metric_path, reviewed_yaml, confirmed_document
+    )
+    merged = merge_metric_documents(
+        existing,
+        incoming,
+        confirm_relationship_conflicts=confirm_relationship_conflicts,
+    )
     for metric_name, notes in incoming["notes"].items():
         merged = update_metric_notes(merged, metric_name, **notes)
     if metric_path.is_file():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         shutil.copy2(metric_path, metric_path.with_suffix(f".{timestamp}.bak"))
     save_metric_definitions_yaml(metric_path, merged)
+
+
+def _relationship_conflict_signature(reviewed_yaml, confirmed_document):
+    return json.dumps(
+        {
+            "reviewed_yaml": reviewed_yaml,
+            "confirmed_entities": confirmed_document.get("entities", {}),
+        },
+        sort_keys=True,
+    )
+
+
+def _relationship_conflict_acknowledgment(
+    state_prefix, reviewed_yaml, confirmed_document
+):
+    conflicts_key = f"{state_prefix}_relationship_conflicts"
+    signature_key = f"{state_prefix}_relationship_conflict_signature"
+    acknowledgment_key = f"{state_prefix}_relationship_conflict_ack"
+    signature = _relationship_conflict_signature(reviewed_yaml, confirmed_document)
+    if st.session_state.get(signature_key) != signature:
+        st.session_state.pop(conflicts_key, None)
+        st.session_state.pop(signature_key, None)
+        st.session_state.pop(acknowledgment_key, None)
+    conflicts = st.session_state.get(conflicts_key, [])
+    if not conflicts:
+        return False
+
+    st.warning(
+        "This import changes existing relationship declarations. Review and "
+        "confirm these changes before saving."
+    )
+    for conflict in conflicts:
+        existing = conflict.get("existing")
+        incoming = conflict.get("incoming")
+        st.write(
+            f"- **{conflict['entity']}.{conflict['column']}**: "
+            f"`{existing}` → `{incoming if incoming is not None else 'removed'}`"
+        )
+    return st.checkbox(
+        "I reviewed these relationship changes and want to apply them.",
+        key=acknowledgment_key,
+    )
+
+
+def _record_relationship_conflicts(
+    state_prefix, reviewed_yaml, confirmed_document, conflicts
+):
+    st.session_state[f"{state_prefix}_relationship_conflicts"] = conflicts
+    st.session_state[f"{state_prefix}_relationship_conflict_signature"] = (
+        _relationship_conflict_signature(reviewed_yaml, confirmed_document)
+    )
+    st.session_state.pop(f"{state_prefix}_relationship_conflict_ack", None)
+
+
+def _clear_relationship_conflict_state(state_prefix):
+    for suffix in (
+        "relationship_conflicts",
+        "relationship_conflict_signature",
+        "relationship_conflict_ack",
+    ):
+        st.session_state.pop(f"{state_prefix}_{suffix}", None)
 
 
 def _preserve_saved_notes(document, metric_path):
@@ -233,19 +312,43 @@ def _render_dbt_layered_import(import_result, custom_context):
             key="structured_import_grounding_ack",
         )
     all_relationships_resolved = not resolved["unresolved_keys"]
+    conflict_acknowledged = _relationship_conflict_acknowledgment(
+        "dbt_import", dbt_review, resolved["document"]
+    )
+    has_pending_conflicts = bool(
+        st.session_state.get("dbt_import_relationship_conflicts")
+    )
     save_col, discard_col = st.columns(2)
     with save_col:
         if st.button(
             "Save Imported Definitions",
-            disabled=not grounding_acknowledged or not all_relationships_resolved,
+            disabled=(
+                not grounding_acknowledged
+                or not all_relationships_resolved
+                or (has_pending_conflicts and not conflict_acknowledged)
+            ),
         ):
             try:
                 _save_sql_metric_document(
-                    yaml_path, dbt_review, resolved["document"]
+                    yaml_path,
+                    dbt_review,
+                    resolved["document"],
+                    confirm_relationship_conflicts=(
+                        has_pending_conflicts and conflict_acknowledged
+                    ),
                 )
+                _clear_relationship_conflict_state("dbt_import")
                 st.session_state.pop("structured_import_result", None)
                 st.session_state.pop("dbt_resolution_signature", None)
                 st.success("✅ dbt definitions saved")
+                st.rerun()
+            except RelationshipConflictError as error:
+                _record_relationship_conflicts(
+                    "dbt_import",
+                    dbt_review,
+                    resolved["document"],
+                    error.conflicts,
+                )
                 st.rerun()
             except Exception as error:
                 st.error(f"Failed to save dbt import: {error}")
@@ -254,6 +357,7 @@ def _render_dbt_layered_import(import_result, custom_context):
             st.session_state.pop("structured_import_result", None)
             st.session_state.pop("structured_import_grounding_ack", None)
             st.session_state.pop("dbt_resolution_signature", None)
+            _clear_relationship_conflict_state("dbt_import")
             st.rerun()
 
 
@@ -333,19 +437,43 @@ def _render_other_layered_import(import_result, custom_context):
             key="structured_import_grounding_ack",
         )
     all_relationships_resolved = not resolved["unresolved_keys"]
+    conflict_acknowledged = _relationship_conflict_acknowledgment(
+        "structured_import", metric_review, resolved["document"]
+    )
+    has_pending_conflicts = bool(
+        st.session_state.get("structured_import_relationship_conflicts")
+    )
     save_col, discard_col = st.columns(2)
     with save_col:
         if st.button(
             "Save Imported Definitions",
-            disabled=not grounding_acknowledged or not all_relationships_resolved,
+            disabled=(
+                not grounding_acknowledged
+                or not all_relationships_resolved
+                or (has_pending_conflicts and not conflict_acknowledged)
+            ),
         ):
             try:
                 _save_sql_metric_document(
-                    yaml_path, metric_review, resolved["document"]
+                    yaml_path,
+                    metric_review,
+                    resolved["document"],
+                    confirm_relationship_conflicts=(
+                        has_pending_conflicts and conflict_acknowledged
+                    ),
                 )
+                _clear_relationship_conflict_state("structured_import")
                 st.session_state.pop("structured_import_result", None)
                 st.session_state.pop("structured_resolution_signature", None)
                 st.success("âœ… Structured definitions saved")
+                st.rerun()
+            except RelationshipConflictError as error:
+                _record_relationship_conflicts(
+                    "structured_import",
+                    metric_review,
+                    resolved["document"],
+                    error.conflicts,
+                )
                 st.rerun()
             except Exception as error:
                 st.error(f"Failed to save structured import: {error}")
@@ -354,6 +482,7 @@ def _render_other_layered_import(import_result, custom_context):
             st.session_state.pop("structured_import_result", None)
             st.session_state.pop("structured_import_grounding_ack", None)
             st.session_state.pop("structured_resolution_signature", None)
+            _clear_relationship_conflict_state("structured_import")
             st.rerun()
 
 
@@ -1185,21 +1314,43 @@ def show():
                         key="sql_import_grounding_ack",
                     )
                 all_keys_resolved = not resolved["unresolved_keys"]
+                conflict_acknowledged = _relationship_conflict_acknowledgment(
+                    "sql_import", sql_review, resolved["document"]
+                )
+                has_pending_conflicts = bool(
+                    st.session_state.get("sql_import_relationship_conflicts")
+                )
                 save_col, discard_col = st.columns(2)
                 with save_col:
                     if st.button(
                         "Save SQL Metric",
-                        disabled=not acknowledged or not all_keys_resolved,
+                        disabled=(
+                            not acknowledged
+                            or not all_keys_resolved
+                            or (has_pending_conflicts and not conflict_acknowledged)
+                        ),
                     ):
                         try:
                             _save_sql_metric_document(
                                 sql_metric_path,
                                 sql_review,
                                 resolved["document"],
+                                confirm_relationship_conflicts=(
+                                    has_pending_conflicts and conflict_acknowledged
+                                ),
                             )
+                            _clear_relationship_conflict_state("sql_import")
                             st.session_state.pop("sql_import_result", None)
                             st.session_state.pop("sql_resolution_signature", None)
                             st.session_state.sql_import_saved = True
+                            st.rerun()
+                        except RelationshipConflictError as error:
+                            _record_relationship_conflicts(
+                                "sql_import",
+                                sql_review,
+                                resolved["document"],
+                                error.conflicts,
+                            )
                             st.rerun()
                         except Exception as error:
                             st.error(f"Failed to save SQL import: {error}")
@@ -1208,6 +1359,7 @@ def show():
                         st.session_state.pop("sql_import_result", None)
                         st.session_state.pop("sql_import_grounding_ack", None)
                         st.session_state.pop("sql_resolution_signature", None)
+                        _clear_relationship_conflict_state("sql_import")
                         st.rerun()
         with source_tab3:
             st.info("Manual input — coming in next step.")
