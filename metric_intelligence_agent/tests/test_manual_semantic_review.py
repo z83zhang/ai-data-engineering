@@ -5,7 +5,10 @@ from manual_semantic_review import (
     RelationshipCorrectionError,
     correct_relationship,
     derived_relationships,
+    grouped_entities,
+    grouped_metrics,
     metric_facts,
+    relationship_label,
 )
 from metric_import import update_metric_notes, validate_metric_document
 
@@ -44,6 +47,28 @@ class ManualSemanticReviewTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_entity_group_co_locates_owned_facts_and_connections(self):
+        groups = {item["name"]: item for item in grouped_entities(example_document())}
+
+        orders = groups["orders"]
+        self.assertEqual(orders["source"]["value"], "orders")
+        self.assertEqual(orders["keys"], [{"column": "id", "type": "primary"}])
+        self.assertEqual(
+            [item["name"] for item in orders["measures"]], ["orders.revenue"]
+        )
+        self.assertEqual(
+            relationship_label(orders["relationships"][0]),
+            "orders.customer_id → customers",
+        )
+
+    def test_metric_group_co_locates_measure_expression_and_notes(self):
+        metric = grouped_metrics(example_document())[0]
+
+        self.assertEqual(metric["name"], "revenue")
+        self.assertEqual(metric["facts"]["measure"], "orders.revenue")
+        self.assertEqual(metric["measures"][0]["expression"], "SUM(amount)")
+        self.assertEqual(metric["notes"]["description"], "Revenue")
 
     def test_relationship_direction_can_be_corrected(self):
         document = example_document()

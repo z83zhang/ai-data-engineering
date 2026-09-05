@@ -40,6 +40,76 @@ def derived_relationships(document):
     )
 
 
+def relationship_label(relationship):
+    """Return the shared analyst-facing relationship representation."""
+    return (
+        f"{relationship['from_entity']}.{relationship['column']} → "
+        f"{relationship['references_entity']}"
+    )
+
+
+def grouped_entities(document):
+    """Group entity-owned facts for read-only presentation."""
+    relationships = derived_relationships(document)
+    groups = []
+    for entity_name, entity in document.get("entities", {}).items():
+        folded_name = entity_name.casefold()
+        groups.append(
+            {
+                "name": entity_name,
+                "source": deepcopy(entity.get("source", {})),
+                "keys": [
+                    deepcopy(key)
+                    for key in entity.get("keys") or []
+                    if key.get("type") != "foreign"
+                ],
+                "relationships": [
+                    deepcopy(relationship)
+                    for relationship in relationships
+                    if relationship["from_entity"].casefold() == folded_name
+                ],
+                "dimensions": [
+                    deepcopy(dimension)
+                    for dimension in document.get("dimensions", [])
+                    if str(dimension.get("entity", "")).casefold() == folded_name
+                ],
+                "measures": [
+                    deepcopy(measure)
+                    for measure in document.get("measures", [])
+                    if str(measure.get("entity", "")).casefold() == folded_name
+                ],
+            }
+        )
+    return groups
+
+
+def grouped_metrics(document):
+    """Co-locate metric facts, referenced measures, and analyst notes."""
+    measures = {
+        measure["name"].casefold(): measure
+        for measure in document.get("measures", [])
+    }
+    notes = {
+        name.casefold(): value for name, value in document.get("notes", {}).items()
+    }
+    groups = []
+    for metric_name, metric in document.get("metrics", {}).items():
+        references = []
+        for field in ("measure", "numerator", "denominator"):
+            reference = metric.get(field)
+            if isinstance(reference, str) and reference.casefold() in measures:
+                references.append(deepcopy(measures[reference.casefold()]))
+        groups.append(
+            {
+                "name": metric_name,
+                "facts": deepcopy(metric),
+                "measures": references,
+                "notes": deepcopy(notes.get(metric_name.casefold(), {})),
+            }
+        )
+    return groups
+
+
 def correct_relationship(
     document,
     relationship,

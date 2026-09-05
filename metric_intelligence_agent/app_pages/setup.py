@@ -24,7 +24,10 @@ from metric_import import (
 from manual_semantic_review import (
     correct_relationship,
     derived_relationships,
+    grouped_entities,
+    grouped_metrics,
     metric_facts,
+    relationship_label,
 )
 from sql_semantic_import import (
     apply_confirmed_entity_keys,
@@ -258,10 +261,7 @@ def _render_relationship_editor(metric_path, document, relationship, index):
         for name in entity_names
         if name.casefold() == relationship["references_entity"].casefold()
     )
-    title = (
-        f"{relationship['from_entity']}.{relationship['column']} → "
-        f"{relationship['references_entity']}"
-    )
+    title = relationship_label(relationship)
     with st.expander(title):
         owner = st.selectbox(
             "Key-owning entity",
@@ -339,6 +339,119 @@ def _render_manual_review(metric_path):
         st.info("No saved foreign-key relationships are available to review.")
     for index, relationship in enumerate(relationships):
         _render_relationship_editor(metric_path, document, relationship, index)
+
+
+def _render_named_records(records, fields):
+    if not records:
+        st.caption("None declared")
+        return
+    for record in records:
+        details = " · ".join(
+            f"{label}: `{record[field]}`"
+            for field, label in fields
+            if record.get(field) not in (None, "", [])
+        )
+        st.markdown(f"- **{record['name']}**" + (f" — {details}" if details else ""))
+
+
+def _render_grouped_entity(entity):
+    with st.expander(entity["name"]):
+        source = entity["source"]
+        st.markdown(
+            f"**Source:** {source.get('type', 'unknown')} · "
+            f"`{source.get('value', '')}`"
+        )
+
+        st.markdown("**Keys**")
+        if entity["keys"]:
+            for key in entity["keys"]:
+                st.markdown(f"- `{key['column']}` — {key['type']}")
+        else:
+            st.caption("None declared")
+
+        st.markdown("**Relationships**")
+        if entity["relationships"]:
+            for relationship in entity["relationships"]:
+                st.markdown(f"- {relationship_label(relationship)}")
+        else:
+            st.caption("None declared")
+
+        st.markdown("**Dimensions**")
+        _render_named_records(
+            entity["dimensions"],
+            (("column", "column"), ("type", "type")),
+        )
+
+        st.markdown("**Measures**")
+        _render_named_records(
+            entity["measures"],
+            (
+                ("expression", "expression"),
+                ("aggregation", "aggregation"),
+                ("re_aggregatable", "re-aggregatable"),
+            ),
+        )
+
+
+def _render_grouped_metric(metric):
+    facts = metric["facts"]
+    notes = metric["notes"]
+    with st.expander(metric["name"]):
+        st.markdown(f"**Type:** {facts['type']}")
+        for measure in metric["measures"]:
+            st.markdown(
+                f"**Measure:** {measure['name']} · "
+                f"expression: `{measure['expression']}`"
+            )
+        if facts.get("expression"):
+            st.markdown(f"**Expression:** `{facts['expression']}`")
+        if facts.get("window"):
+            st.markdown(f"**Window:** `{facts['window']}`")
+
+        st.markdown("**Filters:**")
+        if facts.get("filters"):
+            for item in facts["filters"]:
+                st.markdown(
+                    f"- `{item['dimension']}` {item['operator']} `{item['value']}`"
+                )
+        else:
+            st.caption("None")
+        grain = facts.get("grain") or []
+        st.markdown(
+            "**Grain:** " + (", ".join(f"`{item}`" for item in grain) or "None")
+        )
+
+        st.markdown("**Analyst notes**")
+        note_labels = (
+            ("description", "Description"),
+            ("business_rules", "Business rules"),
+            ("caveats", "Caveats"),
+            ("ambiguity_rules", "Ambiguity rules"),
+        )
+        for field, label in note_labels:
+            st.markdown(f"- **{label}:** {notes.get(field) or '—'}")
+
+
+def _render_current_metric_definitions(metric_path, legacy_metric_path):
+    st.divider()
+    st.subheader("Current Metric Definitions")
+    if not metric_path.is_file():
+        st.markdown(legacy_metric_path.read_text(encoding="utf-8"))
+        return
+
+    document = load_metric_definitions_yaml(metric_path)
+    st.markdown("#### Entities")
+    for entity in grouped_entities(document):
+        _render_grouped_entity(entity)
+
+    st.markdown("#### Metrics")
+    if not document["metrics"]:
+        st.caption("No metrics declared")
+    for metric in grouped_metrics(document):
+        _render_grouped_metric(metric)
+
+    with st.expander("View raw YAML", expanded=False):
+        st.code(metric_path.read_text(encoding="utf-8"), language="yaml")
 
 
 def _relationship_conflict_signature(reviewed_yaml, confirmed_document):
@@ -1533,15 +1646,7 @@ def show():
 
         sql_metric_path = custom_context / "metric_definitions.yaml"
         if legacy_metric_path.is_file() or sql_metric_path.is_file():
-            st.divider()
-            st.subheader("Current Metric Definitions")
-            if sql_metric_path.is_file():
-                st.code(
-                    sql_metric_path.read_text(encoding="utf-8"),
-                    language="yaml",
-                )
-            elif legacy_metric_path.is_file():
-                st.markdown(legacy_metric_path.read_text(encoding="utf-8"))
+            _render_current_metric_definitions(sql_metric_path, legacy_metric_path)
 
     with validate_tab:
         st.info(
