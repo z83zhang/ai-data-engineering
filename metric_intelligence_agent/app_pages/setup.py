@@ -18,6 +18,7 @@ from metric_import import (
     merge_metric_documents,
     parse_metric_definitions_yaml,
     preserve_analyst_notes,
+    protected_note_reimports,
     render_metric_definitions_yaml,
     save_metric_definitions_yaml,
     update_metric_notes,
@@ -523,6 +524,19 @@ def _preserve_saved_notes(document, metric_path):
     return preserve_analyst_notes(document, existing)
 
 
+def _show_analyst_notes_reimport_notice(document, metric_path):
+    if not metric_path.is_file():
+        return
+    existing = load_metric_definitions_yaml(metric_path)
+    protected = protected_note_reimports(document, existing)
+    for metric_name in protected:
+        st.info(
+            f"{metric_name} has analyst-authored notes, which will not be changed "
+            "by this import. If the underlying logic changed meaningfully, review "
+            "the notes on the Manual tab."
+        )
+
+
 def _render_dbt_layered_import(import_result, custom_context):
     unknown_tables = import_result.get("unknown_tables", [])
     unknown_columns = import_result.get("unknown_columns", [])
@@ -561,6 +575,7 @@ def _render_dbt_layered_import(import_result, custom_context):
     )
     resolved["document"]["notes"] = import_result["notes"]
     yaml_path = custom_context / "metric_definitions.yaml"
+    _show_analyst_notes_reimport_notice(resolved["document"], yaml_path)
     resolved["document"] = _preserve_saved_notes(resolved["document"], yaml_path)
     signature = json.dumps(resolutions, sort_keys=True)
     if st.session_state.get("dbt_resolution_signature") != signature:
@@ -666,6 +681,7 @@ def _render_other_layered_import(import_result, custom_context):
         import_result["extraction"], relationship_resolutions=resolutions
     )
     yaml_path = custom_context / "metric_definitions.yaml"
+    _show_analyst_notes_reimport_notice(resolved["document"], yaml_path)
     resolved["document"] = _preserve_saved_notes(resolved["document"], yaml_path)
     signature = json.dumps(resolutions, sort_keys=True)
     if st.session_state.get("structured_resolution_signature") != signature:
@@ -1569,6 +1585,9 @@ def show():
                     key_resolutions=resolutions,
                 )
                 resolved["document"]["notes"] = sql_result["notes"]
+                _show_analyst_notes_reimport_notice(
+                    resolved["document"], sql_metric_path
+                )
                 resolved["document"] = _preserve_saved_notes(
                     resolved["document"], sql_metric_path
                 )

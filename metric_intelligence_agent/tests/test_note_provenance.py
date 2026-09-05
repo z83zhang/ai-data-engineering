@@ -7,6 +7,7 @@ os.environ.setdefault("OPENAI_API_KEY", "test-only-placeholder")
 
 from app_pages.setup import _preserve_saved_notes
 from metric_import import (
+    protected_note_reimports,
     save_metric_definitions_yaml,
     update_metric_notes,
 )
@@ -18,6 +19,29 @@ QUERY_B = "SELECT SUM(amount) AS revenue FROM orders WHERE status = 'pending'"
 
 
 class NoteProvenanceTests(unittest.TestCase):
+    def test_analyst_edited_note_is_reported_for_reimport(self):
+        existing = update_metric_notes(
+            imported_document(QUERY_A, "Generated description"),
+            "revenue",
+            description="Analyst description",
+        )
+        incoming = imported_document(QUERY_B, "Regenerated description")
+
+        self.assertEqual(protected_note_reimports(incoming, existing), ["revenue"])
+
+    def test_system_generated_note_is_not_reported_for_reimport(self):
+        existing = imported_document(QUERY_A, "Generated description")
+        incoming = imported_document(QUERY_B, "Regenerated description")
+
+        self.assertEqual(protected_note_reimports(incoming, existing), [])
+
+    def test_legacy_protected_note_is_reported_for_reimport(self):
+        existing = imported_document(QUERY_A, "Existing description")
+        existing["notes"]["revenue"].pop("provenance")
+        incoming = imported_document(QUERY_B, "Regenerated description")
+
+        self.assertEqual(protected_note_reimports(incoming, existing), ["revenue"])
+
     def test_system_generated_notes_refresh_when_sql_facts_change(self):
         first = imported_document(QUERY_A, "Completed-order revenue")
         second = imported_document(QUERY_B, "Pending-order revenue")

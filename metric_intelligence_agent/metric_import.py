@@ -150,6 +150,18 @@ def preserve_analyst_notes(document, existing):
     return updated
 
 
+def protected_note_reimports(document, existing):
+    """Return imported metric names whose saved notes are analyst-protected."""
+    saved_notes = {name.casefold(): notes for name, notes in existing["notes"].items()}
+    return [
+        name
+        for name in document["metrics"]
+        if name.casefold() in saved_notes
+        and saved_notes[name.casefold()].get("provenance", "analyst_edited")
+        == "analyst_edited"
+    ]
+
+
 def relationship_conflicts(existing, incoming):
     """Return relationship-level conflicts for same-name entity replacements."""
     current = _normalized_document(existing)["entities"]
