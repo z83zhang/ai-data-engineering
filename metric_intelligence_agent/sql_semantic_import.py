@@ -192,6 +192,7 @@ def extract_sql_semantic_document(
                 "business_rules": "",
                 "caveats": "",
                 "ambiguity_rules": "",
+                "provenance": "system_generated",
             }
             for name in metrics
         },

@@ -17,6 +17,7 @@ from metric_import import (
     load_metric_definitions_yaml,
     merge_metric_documents,
     parse_metric_definitions_yaml,
+    preserve_analyst_notes,
     render_metric_definitions_yaml,
     save_metric_definitions_yaml,
     update_metric_notes,
@@ -519,11 +520,7 @@ def _preserve_saved_notes(document, metric_path):
     if not metric_path.is_file():
         return document
     existing = load_metric_definitions_yaml(metric_path)
-    saved_notes = {name.casefold(): notes for name, notes in existing["notes"].items()}
-    for name in document["metrics"]:
-        if name.casefold() in saved_notes:
-            document["notes"][name] = saved_notes[name.casefold()]
-    return document
+    return preserve_analyst_notes(document, existing)
 
 
 def _render_dbt_layered_import(import_result, custom_context):
@@ -1493,6 +1490,7 @@ def show():
                                 "business_rules": prose["business_rules"],
                                 "caveats": "",
                                 "ambiguity_rules": "",
+                                "provenance": "system_generated",
                             }
                     schema_df = st.session_state.get("schema_df")
                     if schema_df is None:

@@ -10,6 +10,7 @@ from metric_import import (
     load_metric_definitions_yaml,
     merge_metric_documents,
     parse_metric_definitions_yaml,
+    preserve_analyst_notes,
     relationship_conflicts,
     save_metric_definitions_yaml,
     update_metric_notes,
@@ -166,6 +167,84 @@ class MetricYamlTests(unittest.TestCase):
         self.assertEqual(
             merged["notes"]["Average Customer Revenue"]["caveats"],
             "Analyst-edited caveat",
+        )
+        self.assertEqual(
+            edited["notes"]["Average Customer Revenue"]["provenance"],
+            "analyst_edited",
+        )
+
+    def test_system_generated_notes_refresh_on_same_name_reimport(self):
+        existing = worked_example()
+        existing["notes"]["Average Customer Revenue"].update(
+            description="Query A description",
+            business_rules="Query A rules",
+            provenance="system_generated",
+        )
+        incoming = worked_example()
+        incoming["metrics"]["Average Customer Revenue"]["filters"][0]["value"] = "CA"
+        incoming["notes"]["Average Customer Revenue"].update(
+            description="Query B description",
+            business_rules="Query B rules",
+            provenance="system_generated",
+        )
+
+        prepared = preserve_analyst_notes(incoming, existing)
+        merged = merge_metric_documents(existing, prepared)
+        for metric_name, notes in prepared["notes"].items():
+            merged = update_metric_notes(merged, metric_name, **notes)
+
+        self.assertEqual(
+            merged["notes"]["Average Customer Revenue"]["description"],
+            "Query B description",
+        )
+        self.assertEqual(
+            merged["notes"]["Average Customer Revenue"]["business_rules"],
+            "Query B rules",
+        )
+        self.assertEqual(
+            merged["notes"]["Average Customer Revenue"]["provenance"],
+            "system_generated",
+        )
+
+    def test_analyst_edited_notes_survive_same_name_reimport(self):
+        existing = update_metric_notes(
+            worked_example(),
+            "Average Customer Revenue",
+            description="Analyst-approved description",
+        )
+        incoming = worked_example()
+        incoming["notes"]["Average Customer Revenue"].update(
+            description="Regenerated description",
+            provenance="system_generated",
+        )
+
+        prepared = preserve_analyst_notes(incoming, existing)
+
+        self.assertEqual(
+            prepared["notes"]["Average Customer Revenue"]["description"],
+            "Analyst-approved description",
+        )
+        self.assertEqual(
+            prepared["notes"]["Average Customer Revenue"]["provenance"],
+            "analyst_edited",
+        )
+
+    def test_legacy_notes_without_provenance_are_protected(self):
+        existing = worked_example()
+        incoming = worked_example()
+        incoming["notes"]["Average Customer Revenue"].update(
+            description="Regenerated description",
+            provenance="system_generated",
+        )
+
+        prepared = preserve_analyst_notes(incoming, existing)
+
+        self.assertEqual(
+            prepared["notes"]["Average Customer Revenue"]["description"],
+            existing["notes"]["Average Customer Revenue"]["description"],
+        )
+        self.assertNotIn(
+            "provenance", prepared["notes"]["Average Customer Revenue"]
         )
 
     def test_filter_referencing_undeclared_dimension_is_rejected(self):

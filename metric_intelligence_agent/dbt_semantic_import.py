@@ -159,6 +159,7 @@ def extract_dbt_semantic_document(manifest, *, relationship_resolutions=None):
             "business_rules": "",
             "caveats": "",
             "ambiguity_rules": "",
+            "provenance": "system_generated",
         }
 
     document = {

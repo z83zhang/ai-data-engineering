@@ -9,6 +9,7 @@ from sqlglot import exp, parse_one
 FACT_SECTIONS = ("entities", "dimensions", "measures", "metrics")
 DOCUMENT_SECTIONS = (*FACT_SECTIONS, "notes")
 NOTE_FIELDS = ("description", "business_rules", "caveats", "ambiguity_rules")
+NOTE_PROVENANCE = {"system_generated", "analyst_edited"}
 KEY_TYPES = {"primary", "foreign", "unique", "natural"}
 DIMENSION_TYPES = {"categorical", "time"}
 AGGREGATIONS = {"sum", "avg", "count", "count_distinct", "min", "max", "custom"}
@@ -115,7 +116,9 @@ def merge_metric_documents(
     return merged
 
 
-def update_metric_notes(document, metric_name, **notes):
+def update_metric_notes(
+    document, metric_name, *, provenance="analyst_edited", **notes
+):
     """Apply an explicit analyst note edit without changing metric facts."""
     unknown = set(notes) - set(NOTE_FIELDS)
     if unknown:
@@ -127,7 +130,22 @@ def update_metric_notes(document, metric_name, **notes):
     existing_name = _case_insensitive_name(updated["notes"], actual_name)
     current_notes = deepcopy(updated["notes"].pop(existing_name, {})) if existing_name else {}
     current_notes.update(notes)
+    if provenance not in NOTE_PROVENANCE:
+        raise MetricDefinitionError(f"Invalid notes provenance {provenance!r}.")
+    current_notes["provenance"] = provenance
     updated["notes"][actual_name] = current_notes
+    validate_metric_document(updated)
+    return updated
+
+
+def preserve_analyst_notes(document, existing):
+    """Protect analyst-owned notes while allowing imported notes to refresh."""
+    updated = _normalized_document(document)
+    saved_notes = {name.casefold(): notes for name, notes in existing["notes"].items()}
+    for name in updated["metrics"]:
+        saved = saved_notes.get(name.casefold())
+        if saved is not None and saved.get("provenance", "analyst_edited") == "analyst_edited":
+            updated["notes"][name] = deepcopy(saved)
     validate_metric_document(updated)
     return updated
 
@@ -222,14 +240,19 @@ def validate_metric_document(document):
             raise MetricDefinitionError(f"Notes reference undeclared metric {name!r}.")
         if not isinstance(notes, dict):
             raise MetricDefinitionError(f"Notes for metric {name!r} must be a mapping.")
-        unknown = set(notes) - set(NOTE_FIELDS)
+        unknown = set(notes) - {*NOTE_FIELDS, "provenance"}
         if unknown:
             raise MetricDefinitionError(
                 f"Notes for metric {name!r} contain unknown fields: "
                 f"{', '.join(sorted(unknown))}."
             )
-        if any(not isinstance(value, str) for value in notes.values()):
+        if any(not isinstance(notes.get(field, ""), str) for field in NOTE_FIELDS):
             raise MetricDefinitionError(f"Notes for metric {name!r} must contain text values.")
+        provenance = notes.get("provenance")
+        if provenance is not None and provenance not in NOTE_PROVENANCE:
+            raise MetricDefinitionError(
+                f"Notes for metric {name!r} have invalid provenance {provenance!r}."
+            )
     return document
 
 

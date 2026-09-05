@@ -324,6 +324,7 @@ def build_structured_semantic_document(extraction, *, relationship_resolutions=N
             "business_rules": item.get("business_rules") or "",
             "caveats": item.get("caveats") or "",
             "ambiguity_rules": item.get("ambiguity_rules") or "",
+            "provenance": "system_generated",
         }
     _promote_unrepresented_measures(
         measures, metrics, notes, skipped_metric_names
@@ -491,6 +492,7 @@ def _promote_unrepresented_measures(measures, metrics, notes, skipped_names):
             "business_rules": "",
             "caveats": "",
             "ambiguity_rules": "",
+            "provenance": "system_generated",
         }
         metric_names.add(metric_name.casefold())
 

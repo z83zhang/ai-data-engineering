@@ -111,6 +111,8 @@ Not a top-level YAML section. Computed at read time from every `Entity.keys` ent
 
 `description`, `business_rules`, `caveats`, `ambiguity_rules` — each independently editable, **never overwritten by re-import**, only by explicit analyst edit.
 
+**Notes-provenance addendum (2026-09-05):** Each metric's note-set may include `provenance: system_generated|analyst_edited`. Import-created notes are `system_generated` and may be regenerated when that metric is re-imported. Saving any note field through the analyst review surface marks the whole note-set `analyst_edited`; subsequent re-imports preserve it unchanged. Existing note-sets without a provenance marker are treated as `analyst_edited` so previously saved analyst work is never overwritten based on an origin guess. Provenance is per metric rather than per field.
+
 ### Merge Rules
 
 - Facts (entities/dimensions/measures/metrics): replace-on-name-match, case-insensitive — same rule as today, scoped to facts only.
