@@ -21,6 +21,11 @@ from metric_import import (
     save_metric_definitions_yaml,
     update_metric_notes,
 )
+from manual_semantic_review import (
+    correct_relationship,
+    derived_relationships,
+    metric_facts,
+)
 from sql_semantic_import import (
     apply_confirmed_entity_keys,
     extract_sql_semantic_document,
@@ -172,6 +177,168 @@ def _save_sql_metric_document(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         shutil.copy2(metric_path, metric_path.with_suffix(f".{timestamp}.bak"))
     save_metric_definitions_yaml(metric_path, merged)
+
+
+def _save_manual_metric_document(metric_path, document):
+    if metric_path.is_file():
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        shutil.copy2(metric_path, metric_path.with_suffix(f".{timestamp}.bak"))
+    save_metric_definitions_yaml(metric_path, document)
+
+
+def _manual_saved_message():
+    message = st.session_state.pop("manual_review_saved", None)
+    if message:
+        st.success(message)
+
+
+def _clear_manual_relationship_widget_state():
+    for key in list(st.session_state):
+        if key.startswith("manual_relationship_"):
+            st.session_state.pop(key, None)
+
+
+def _render_metric_note_editor(metric_path, document, metric_name):
+    notes = document.get("notes", {}).get(metric_name, {})
+    facts = metric_facts(document, metric_name)
+    with st.expander(metric_name):
+        with st.form(f"manual_notes_{metric_name}"):
+            facts_column, notes_column = st.columns(2)
+            with facts_column:
+                st.caption("Parsed facts (read-only)")
+                st.json(facts)
+            with notes_column:
+                st.caption("Analyst notes")
+                description = st.text_area(
+                    "Description", value=notes.get("description", "")
+                )
+                business_rules = st.text_area(
+                    "Business rules", value=notes.get("business_rules", "")
+                )
+                caveats = st.text_area("Caveats", value=notes.get("caveats", ""))
+                ambiguity_rules = st.text_area(
+                    "Ambiguity rules", value=notes.get("ambiguity_rules", "")
+                )
+            if st.form_submit_button("Save notes"):
+                latest = load_metric_definitions_yaml(metric_path)
+                updated = update_metric_notes(
+                    latest,
+                    metric_name,
+                    description=description,
+                    business_rules=business_rules,
+                    caveats=caveats,
+                    ambiguity_rules=ambiguity_rules,
+                )
+                _save_manual_metric_document(metric_path, updated)
+                st.session_state.manual_review_saved = f"Saved notes for {metric_name}."
+                st.rerun()
+
+
+def _relationship_changed(relationship, owner, column, key_type, reference):
+    return any(
+        (
+            relationship["from_entity"].casefold() != owner.casefold(),
+            relationship["column"].casefold() != column.strip().casefold(),
+            relationship["key_type"] != key_type,
+            key_type == "foreign"
+            and relationship["references_entity"].casefold() != reference.casefold(),
+        )
+    )
+
+
+def _render_relationship_editor(metric_path, document, relationship, index):
+    entity_names = list(document["entities"])
+    current_owner = next(
+        name
+        for name in entity_names
+        if name.casefold() == relationship["from_entity"].casefold()
+    )
+    current_reference = next(
+        name
+        for name in entity_names
+        if name.casefold() == relationship["references_entity"].casefold()
+    )
+    title = (
+        f"{relationship['from_entity']}.{relationship['column']} → "
+        f"{relationship['references_entity']}"
+    )
+    with st.expander(title):
+        owner = st.selectbox(
+            "Key-owning entity",
+            entity_names,
+            index=entity_names.index(current_owner),
+            key=f"manual_relationship_owner_{index}",
+        )
+        column = st.text_input(
+            "Key column",
+            value=relationship["column"],
+            key=f"manual_relationship_column_{index}",
+        )
+        key_types = ["foreign", "primary", "unique", "natural"]
+        key_type = st.selectbox(
+            "Key type", key_types, index=0, key=f"manual_relationship_type_{index}"
+        )
+        reference = ""
+        if key_type == "foreign":
+            reference = st.selectbox(
+                "References entity",
+                entity_names,
+                index=entity_names.index(current_reference),
+                key=f"manual_relationship_reference_{index}",
+            )
+        changed = _relationship_changed(
+            relationship, owner, column, key_type, reference
+        )
+        acknowledged = st.checkbox(
+            "I reviewed this relationship correction and want to save it.",
+            key=f"manual_relationship_ack_{index}",
+        )
+        if st.button(
+            "Save relationship correction",
+            key=f"manual_relationship_save_{index}",
+            disabled=not changed or not acknowledged or not column.strip(),
+        ):
+            try:
+                latest = load_metric_definitions_yaml(metric_path)
+                updated = correct_relationship(
+                    latest,
+                    relationship,
+                    from_entity=owner,
+                    column=column,
+                    key_type=key_type,
+                    references_entity=reference or None,
+                )
+                _save_manual_metric_document(metric_path, updated)
+                st.session_state.manual_review_saved = "Saved relationship correction."
+                _clear_manual_relationship_widget_state()
+                st.rerun()
+            except ValueError as error:
+                st.error(str(error))
+
+
+def _render_manual_review(metric_path):
+    st.caption(
+        "Review imported semantic definitions, add analyst-owned notes, and "
+        "correct saved relationships."
+    )
+    if not metric_path.is_file():
+        st.info("Import semantic definitions before reviewing them here.")
+        return
+    _manual_saved_message()
+    document = load_metric_definitions_yaml(metric_path)
+
+    st.subheader("Metric notes")
+    if not document["metrics"]:
+        st.info("No metrics are currently available to annotate.")
+    for metric_name in document["metrics"]:
+        _render_metric_note_editor(metric_path, document, metric_name)
+
+    st.subheader("Relationships")
+    relationships = derived_relationships(document)
+    if not relationships:
+        st.info("No saved foreign-key relationships are available to review.")
+    for index, relationship in enumerate(relationships):
+        _render_relationship_editor(metric_path, document, relationship, index)
 
 
 def _relationship_conflict_signature(reviewed_yaml, confirmed_document):
@@ -1362,7 +1529,7 @@ def show():
                         _clear_relationship_conflict_state("sql_import")
                         st.rerun()
         with source_tab3:
-            st.info("Manual input — coming in next step.")
+            _render_manual_review(yaml_metric_path)
 
         sql_metric_path = custom_context / "metric_definitions.yaml"
         if legacy_metric_path.is_file() or sql_metric_path.is_file():
