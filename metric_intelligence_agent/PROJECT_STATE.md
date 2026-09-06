@@ -12,24 +12,25 @@
 - **Evaluation logging.** Interactive and evaluation runs share one runner and are logged locally with SQL, attempt count, technical and semantic outcomes, latency, token counts, cost, detected layer, and human-review fields.
 - **Context separation.** Bundled demo context and generated custom context use separate locations. Setup writes do not modify the bundled demo context.
 - **Custom file-database connections.** DuckDB files open read-only. SQLite files are attached read-only through DuckDB. Both connectors test connections and discover schema through source-specific paths.
-- **dbt-manifest metric import.** Manifest schema v10-v11 is parsed deterministically into the layered ADR-010 format of entities, dimensions, measures, and metrics. Relationship direction resolves from declared relationships tests or schema-declared foreign-key constraints (`to`/`to_columns` or legacy expressions); genuinely ambiguous or absent direction requires explicit analyst confirmation before saving.
-- **SQL and other structured metric import.** Pipeline/dashboard SQL is parsed deterministically for factual metric content, with the LLM limited to business-facing prose. LookML, Cube, and similar structured formats use grounded LLM extraction into the layered ADR-010 format, normalize measures to full aggregate expressions, and promote independently resolvable queryable measures to simple metrics. Explicit source-native relationship direction is retained; unresolved direction requires analyst confirmation. All paths ground tables and columns, require acknowledgment for schema mismatches, support YAML review, and save metric definitions only.
+- **dbt-manifest metric import.** Manifest schema v10-v11 is parsed deterministically into the layered ADR-010 YAML format of entities, dimensions, measures, metrics, and separately managed notes. Relationship direction resolves from declared relationships tests or schema-declared foreign-key constraints (`to`/`to_columns` or legacy expressions); genuinely ambiguous or absent direction requires explicit analyst confirmation before saving.
+- **SQL and other structured metric import.** Pipeline/dashboard SQL is parsed deterministically for factual metric content, with the LLM limited to business-facing notes. LookML, Cube, and similar structured formats use grounded LLM extraction into the layered ADR-010 YAML format of entities, dimensions, measures, metrics, and notes, normalize measures to full aggregate expressions, and promote independently resolvable queryable measures to simple metrics. Explicit source-native relationship direction is retained; unresolved direction requires analyst confirmation. All paths ground tables and columns, require acknowledgment for schema mismatches, support YAML review, and save metric definitions only.
+- **Metric-definition review and annotation.** The Manual tab provides grouped review of parsed entities, dimensions, measures, metrics, derived relationships, and notes. Analysts can edit provenance-tracked metric notes and correct saved relationships without using a blank raw-fact entry form.
 
 ### Present but partially complete
 
 - **Custom-source setup.** The UI can connect a supported source, discover schema, generate and save schema context, collect and persist analyst table-layer classifications, generate/review/refine a table catalog, enrich it from supplied documentation, and create backups when saving.
 - **Custom source switching infrastructure.** The application has a source-switch operation that replaces the connection, context, graph, and source identity while clearing question-specific state and preserving evaluation logging. The setup UI can switch from an already active custom source back to the demo, but it cannot activate or reload a custom source.
-- **Definition and assumption disclosure.** The explanation prompt requests the metric definition and assumptions, but the output is free-form LLM prose and is not guaranteed or structurally represented.
+- **Definition and assumption disclosure.** Custom-source runtime context assembly includes structured, provenance-tracked notes alongside layered metric facts and derived relationships. The explanation prompt can use that context, but its output remains free-form LLM prose; structured, guaranteed disclosure in the answer is not implemented.
 - **Database-agnostic structure.** Business context is externalized and connectors share a common interface, but SQL wording, custom layer detection, monitoring, and evaluation are not yet fully source-agnostic.
 
 ## Current Apparent Implementation Focus
 
-Recent repository activity and the remaining setup placeholders are concentrated on the custom-source setup path. Connection and schema discovery, table classification/catalog creation, and metric import exist; the unfinished portion includes manual metric entry, validation, and activation of a custom source for querying. This is an observation about the current repository, not an owner-established priority or roadmap.
+Recent repository activity and the remaining setup placeholders are concentrated on the custom-source setup path. Connection and schema discovery, table classification/catalog creation, metric import, and metric review/annotation exist; the unfinished portion includes validation and activation of a custom source for querying. This is an observation about the current repository, not an owner-established priority or roadmap.
 
 ## Partially Implemented / Known Gaps
 
 - Custom context can be prepared and detected, but there is no UI control to validate, activate, or reload it as the live query source.
-- Manual metric entry and the Validate tab are placeholders.
+- The Validate tab remains a placeholder.
 - Setup completion checks file existence rather than validating content completeness, catalog coverage, metric references, or generated schema fidelity.
 - Metric definitions are the accepted sole join-path authority, but the bundled table catalog contains joins and catalog enrichment can write them.
 - Generated schema SQL is LLM output constrained by prompts; it is not parsed, executed, or compared deterministically with discovered metadata before saving.
@@ -43,8 +44,8 @@ Recent repository activity and the remaining setup placeholders are concentrated
 
 ## Deferred Production Work
 
-- Complete manual metric entry, setup validation, explicit custom-source activation, and previous-session reload.
-- Provide structured, guaranteed definition and assumption disclosure.
+- Complete setup validation, explicit custom-source activation, and previous-session reload.
+- Provide structured, guaranteed definition and assumption disclosure in the generated answer; structured custom-source notes now reach runtime context, but explanation output remains free-form.
 - Add database integrations beyond DuckDB and SQLite while extending dialect, layer-reporting, monitoring, and evaluation behavior accordingly.
 - Add production multi-user authentication, shared sessions, shared caching, and shared evaluation storage.
 - Add retrieval-based context loading for larger knowledge sets.
@@ -74,6 +75,10 @@ Recent repository activity and the remaining setup placeholders are concentrated
 - Added the custom database setup foundation, read-only DuckDB and SQLite connectors, schema discovery, catalog generation/review, and persistent layer classifications.
 - Added deterministic pipeline/dashboard SQL import, including separate metrics for multiple aliased aggregate expressions. Added dbt manifest v10-v11 import that populates layered ADR-010 entities, dimensions, measures, and metrics, resolves direction from declared relationship signals, and requires analyst confirmation when direction remains unresolved. Metric imports write metric definitions only; table-catalog ownership remains exclusively with Data Source setup.
 - Rewired grounded LookML, Cube, and similar structured-format imports to populate layered ADR-010 YAML, normalize full aggregate expressions, promote independently resolvable measures to simple metrics, retain explicit source-declared relationship direction, gate ambiguous direction on analyst confirmation, ground table-and-column references before saving, preserve analyst-owned layers, and skip or flag metric-to-metric composition.
+- Replaced the blank Manual-tab placeholder with a review/annotation surface for metric notes and derived relationships, including grouped entity/metric display with a secondary raw-YAML view.
+- Added per-metric notes provenance so system-generated notes refresh on re-import while analyst-edited notes remain protected, plus a non-blocking re-import notice when protected notes are retained.
+- Added a non-blocking near-match notice when an imported metric name plausibly refers to an existing metric but does not match it exactly.
+- Integrated layered custom-source YAML, provenance-tracked notes, and derived relationships into runtime context assembly while preserving the bundled demo context unchanged.
 - Added case-insensitive metric-heading identity across metric-definition save paths: saving replaces every existing matching-name section with exactly one new definition.
 - Added distinct active-query-source and setup-connected-schema indicators so setup grounding state is visible without changing explicit activation behavior.
 - Added the Streamlit chat experience with caching, recent-question context, input validation, result metadata, and feedback.
@@ -82,7 +87,6 @@ Recent repository activity and the remaining setup placeholders are concentrated
 
 ## Next Established Work
 
-- Implement manual metric entry.
 - Implement setup validation, explicit custom-source activation, and previous-session reload using the accepted source-switch boundary.
 - Correct context-dependent cache identity and create distinct logging/feedback attribution for cached interactions.
 - Make custom-source layer detection, monitoring, and evaluation source-aware.
