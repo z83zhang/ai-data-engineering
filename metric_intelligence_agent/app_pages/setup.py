@@ -16,6 +16,7 @@ from metric_import import (
     empty_metric_document,
     load_metric_definitions_yaml,
     merge_metric_documents,
+    metric_name_near_matches,
     parse_metric_definitions_yaml,
     preserve_analyst_notes,
     protected_note_reimports,
@@ -537,6 +538,25 @@ def _show_analyst_notes_reimport_notice(document, metric_path):
         )
 
 
+def _show_metric_name_near_match_notice(document, metric_path):
+    if not metric_path.is_file():
+        return
+    existing = load_metric_definitions_yaml(metric_path)
+    for imported_name, candidates in metric_name_near_matches(
+        document, existing
+    ).items():
+        if len(candidates) == 1:
+            suggestion = f"the existing metric **`{candidates[0]}`**"
+        else:
+            names = ", ".join(f"**`{name}`**" for name in candidates)
+            suggestion = f"one of these existing metrics: {names}"
+        st.info(
+            f"No exact match found for **`{imported_name}`**. Did you mean to "
+            f"update {suggestion}? This import will create a new metric unless "
+            "you rename it to match."
+        )
+
+
 def _render_dbt_layered_import(import_result, custom_context):
     unknown_tables = import_result.get("unknown_tables", [])
     unknown_columns = import_result.get("unknown_columns", [])
@@ -575,6 +595,7 @@ def _render_dbt_layered_import(import_result, custom_context):
     )
     resolved["document"]["notes"] = import_result["notes"]
     yaml_path = custom_context / "metric_definitions.yaml"
+    _show_metric_name_near_match_notice(resolved["document"], yaml_path)
     _show_analyst_notes_reimport_notice(resolved["document"], yaml_path)
     resolved["document"] = _preserve_saved_notes(resolved["document"], yaml_path)
     signature = json.dumps(resolutions, sort_keys=True)
@@ -681,6 +702,7 @@ def _render_other_layered_import(import_result, custom_context):
         import_result["extraction"], relationship_resolutions=resolutions
     )
     yaml_path = custom_context / "metric_definitions.yaml"
+    _show_metric_name_near_match_notice(resolved["document"], yaml_path)
     _show_analyst_notes_reimport_notice(resolved["document"], yaml_path)
     resolved["document"] = _preserve_saved_notes(resolved["document"], yaml_path)
     signature = json.dumps(resolutions, sort_keys=True)
@@ -1585,6 +1607,9 @@ def show():
                     key_resolutions=resolutions,
                 )
                 resolved["document"]["notes"] = sql_result["notes"]
+                _show_metric_name_near_match_notice(
+                    resolved["document"], sql_metric_path
+                )
                 _show_analyst_notes_reimport_notice(
                     resolved["document"], sql_metric_path
                 )

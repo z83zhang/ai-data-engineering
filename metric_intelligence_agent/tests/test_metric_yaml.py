@@ -9,6 +9,7 @@ from metric_import import (
     RenameConfirmationRequired,
     load_metric_definitions_yaml,
     merge_metric_documents,
+    metric_name_near_matches,
     parse_metric_definitions_yaml,
     preserve_analyst_notes,
     relationship_conflicts,
@@ -19,6 +20,27 @@ from metric_import import (
 
 
 class MetricYamlTests(unittest.TestCase):
+    def test_missing_entity_prefix_is_a_metric_name_near_match(self):
+        existing = partial_document(metrics={"orders.revenue": {}})
+        incoming = partial_document(metrics={"revenue": {}})
+
+        self.assertEqual(
+            metric_name_near_matches(incoming, existing),
+            {"revenue": ["orders.revenue"]},
+        )
+
+    def test_exact_case_insensitive_metric_name_is_not_a_near_match(self):
+        existing = partial_document(metrics={"Revenue": {}})
+        incoming = partial_document(metrics={"revenue": {}})
+
+        self.assertEqual(metric_name_near_matches(incoming, existing), {})
+
+    def test_novel_metric_name_has_no_near_match(self):
+        existing = partial_document(metrics={"orders.revenue": {}})
+        incoming = partial_document(metrics={"totally_new_metric_xyz": {}})
+
+        self.assertEqual(metric_name_near_matches(incoming, existing), {})
+
     def test_adr_010_worked_example_writes_and_reads_without_loss(self):
         document = worked_example()
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:

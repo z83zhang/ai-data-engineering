@@ -1,5 +1,6 @@
 import re
 from copy import deepcopy
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import yaml
@@ -160,6 +161,35 @@ def protected_note_reimports(document, existing):
         and saved_notes[name.casefold()].get("provenance", "analyst_edited")
         == "analyst_edited"
     ]
+
+
+def metric_name_near_matches(document, existing, *, similarity_threshold=0.86):
+    """Find plausible existing identities without redirecting an import."""
+    existing_names = list(existing["metrics"])
+    existing_folded = {name.casefold() for name in existing_names}
+    matches = {}
+    for incoming_name in document["metrics"]:
+        if incoming_name.casefold() in existing_folded:
+            continue
+        incoming_leaf = _metric_name_leaf(incoming_name)
+        candidates = []
+        for existing_name in existing_names:
+            existing_leaf = _metric_name_leaf(existing_name)
+            leaf_match = incoming_leaf == existing_leaf
+            similarity = max(
+                SequenceMatcher(None, incoming_name.casefold(), existing_name.casefold()).ratio(),
+                SequenceMatcher(None, incoming_leaf, existing_leaf).ratio(),
+            )
+            if leaf_match or similarity >= similarity_threshold:
+                candidates.append((not leaf_match, -similarity, existing_name.casefold(), existing_name))
+        if candidates:
+            candidates.sort()
+            matches[incoming_name] = [item[3] for item in candidates]
+    return matches
+
+
+def _metric_name_leaf(name):
+    return re.sub(r"[^a-z0-9]+", "_", name.casefold().rsplit(".", 1)[-1]).strip("_")
 
 
 def relationship_conflicts(existing, incoming):
