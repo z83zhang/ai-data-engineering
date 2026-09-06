@@ -1,230 +1,193 @@
-# Metric Intelligence Agent
+# Metric Intelligence Agent — Codex Operating Contract
 
-## Project Purpose
+## Role and Collaboration Model
 
-A generalized agentic tool that connects to any database schema, ingests company-specific metric definitions, and returns verified SQL answers to non-technical users with a two-layer reflection check. Demo dataset: TPC-H. Target users: analytics engineers (setup), PMs and data scientists (query).
+Codex is the primary implementation engineer for this repository. The repository owner may use Claude or ChatGPT separately to clarify product behavior, explore architecture tradeoffs, draft decisions, or review completed work.
 
-## Stack and Environment
+Treat external-model material as requirements or design input, not mandatory implementation instructions. Unless a specific structure is an accepted contract, inspect the repository and choose the simplest implementation consistent with existing patterns and durable project decisions. Do not mechanically reproduce suggested classes, functions, files, or pseudocode.
 
-- Python project using `openai`, `duckdb`, `pandas`, and `langgraph`.
-- OpenAI chat completions use `gpt-4o`.
-- DuckDB runs in memory with the TPC-H extension loaded at runtime.
-- Required environment variable:
-  - `OPENAI_API_KEY`: used to initialize the OpenAI client. `agent.py` raises `ValueError` at import time if it is missing.
-- Optional environment variable:
-  - `MAX_REFLECTION_ATTEMPTS`: configures reflection retry count.
-- `MAX_ATTEMPTS` defaults to `3` from `MAX_REFLECTION_ATTEMPTS`.
-- All LLM calls use `temperature=0` for determinism.
+For each task:
 
-## Project Structure
+1. Identify the required behavior, scope, and constraints.
+2. Inspect the relevant current implementation.
+3. Check the applicable product, architecture, ADR, and project-state context.
+4. Choose the smallest coherent implementation consistent with those sources.
+5. Make ordinary code-level decisions autonomously.
+6. Escalate only when a decision materially affects a durable boundary.
 
-- `agent.py`: Database setup, context loading, SQL generation, execution, reflection, validation, explanation, token accounting from OpenAI responses.
-- `graph.py`: LangGraph state machine with flat `AgentState`, conditional routing, token totals, and terminal answer formatting.
-- `main.py`: Demo entry point that initializes database/context/graph/eval logging once, then runs three example questions.
-- `utils.py`: Shared dependency-free utilities; currently the single source of truth for `compute_cost()`.
-- `requirements.txt`: Python dependencies for OpenAI, DuckDB, pandas, and LangGraph.
-- `.gitignore`: Local ignore rules, including `eval.db`.
-- `context/table_catalog.md`: Warehouse layer selection rules, table descriptions, joins, aggregate table dimensions, and correctness caveats.
-- `context/metric_definitions.md`: Canonical metric formulas, source-table guidance, geography ambiguity rules, and metric caveats.
-- `context/schema.sql`: Base TPC-H schema definitions.
-- `docs/file_dependency.md`: Mermaid file dependency graph.
-- `docs/data_flow.md`: Mermaid runtime data flow graph.
-- `eval/__init__.py`: Marks `eval` as an importable package.
-- `eval/logger.py`: Persistent DuckDB eval log setup, layer detection, and run logging.
-- `eval/runner.py`: Shared graph runner used by `main.py` and `eval/run_eval.py`.
-- `eval/test_suite.py`: Thirteen evaluation cases covering wrong layer, wrong join path, wrong metric formula, and out-of-range behavior.
-- `eval/run_eval.py`: Full evaluation runner with scoring, logging, pass-rate summaries, cost totals, and failure reporting.
-- `eval.db`: Local persistent DuckDB evaluation database created at runtime and gitignored.
+## Source-of-Truth Hierarchy
 
-## Function Reference
+Use repository documentation as durable project memory. When relevant, consult in this order:
 
-### `agent.py`
+1. `PRODUCT.md` — accepted product intent, behavior, scope, and non-goals.
+2. `ARCHITECTURE.md` — accepted system structure and durable boundaries.
+3. Accepted ADRs under `docs/decisions/` — rationale for important architectural decisions.
+4. `PROJECT_STATE.md` — current implementation status, known gaps, and established work.
+5. The current task instruction.
+6. The current implementation.
 
-`load_context(min_date, max_date) -> str`
+`PROJECT_STATE.md` informs planning by describing what exists now; it is not a durable constraint against change. An explicitly authorized task may close a recorded gap or otherwise advance the implementation when the change remains consistent with `PRODUCT.md`, `ARCHITECTURE.md`, and accepted ADRs.
 
-- Reads `context/table_catalog.md`, `context/metric_definitions.md`, and `context/schema.sql`.
-- Appends a data-range section using `min_date` and `max_date`.
-- Raises `FileNotFoundError` if a required context file is missing.
-- No LLM calls inside `load_context()` ever.
+Do not silently contradict an accepted product or architecture decision. Current code is evidence of implementation state, not automatic authority over accepted architecture.
 
-`setup_database() -> duckdb.DuckDBPyConnection`
+If code conflicts with an accepted decision:
 
-- Creates an in-memory DuckDB database.
-- Installs and loads the TPC-H extension.
-- Generates TPC-H data at scale factor `0.1`.
-- Builds `agg_daily_sales` and `agg_monthly_sales` with customer region, customer nation, market segment, revenue, order volume, and discount rate.
-- No LLM calls inside `setup_database()` ever.
+- determine whether `PROJECT_STATE.md` already records the conflict as an implementation gap;
+- flag the conflict before making any change that would alter the accepted product or architecture;
+- implement toward the accepted boundary when the task clearly authorizes that work;
+- otherwise stop and ask the owner rather than silently choosing a side.
 
-`get_date_range(conn) -> tuple[str, str]`
+If external-model instructions conflict with `PRODUCT.md`, `ARCHITECTURE.md`, or an accepted ADR, stop before implementing the conflicting part. Explain the conflict and name the source-of-truth document involved.
 
-- Queries `orders` for minimum and maximum `o_orderdate`.
-- Returns `(min_date, max_date)` as `YYYY-MM-DD` strings.
-- No LLM calls inside `get_date_range()` ever.
+## Implementation Autonomy and Escalation
 
-`run_sql(conn, sql) -> dict`
+Make reasonable engineering decisions without asking the owner to choose among routine low-level alternatives. This includes helper structure, internal naming, local data structures, test organization, error-handling mechanics, reuse of existing abstractions, and small implementation-driven refactors.
 
-- Executes SQL against DuckDB.
-- Success shape: `{"success": True, "sql": sql, "data": DataFrame, "error": ""}`.
-- Failure shape: `{"success": False, "sql": sql, "data": None, "error": str}`.
-- No LLM calls inside `run_sql()` ever.
+Escalate before materially changing:
 
-`reflect_sql(conn, context, question, sql, error, attempt) -> dict`
+- product behavior or scope;
+- component responsibilities or public interfaces with meaningful downstream impact;
+- persistent data contracts;
+- semantic or source-of-truth authority;
+- LLM orchestration boundaries;
+- validation and trust guarantees;
+- security or authentication;
+- demo/custom data-source isolation;
+- major dependencies, frameworks, or external services.
 
-- Uses the LLM to rewrite failed or semantically invalid SQL, then immediately runs it with `run_sql()`.
-- `error` accepts DuckDB execution errors and semantic failure descriptions from `validate_result()`.
-- If `attempt >= MAX_ATTEMPTS`, returns failure without another LLM call and token counts of `0`.
-- Success shape includes `success`, `sql`, `data`, `error`, `attempts`, `message`, `input_tokens`, and `output_tokens`.
-- Failure shape uses the same keys; `message` explains when maximum reflection attempts were reached.
+When escalation is necessary, explain:
 
-`validate_result(question, sql, df, context) -> dict`
+1. the decision that must be made;
+2. why the accepted architecture cannot cleanly satisfy the requirement as written;
+3. the recommended option;
+4. meaningful alternatives and tradeoffs.
 
-- Runs Python checks first: zero rows, all-null numeric columns, and negative numeric value warnings.
-- Calls one LLM semantic validator only if Python checks pass.
-- Returns `valid`, `reason`, `input_tokens`, and `output_tokens`.
-- Valid results use `{"valid": True, "reason": ""}`.
+A different developer or model preference is not enough to reopen an accepted decision. Reconsider accepted architecture only for a new requirement, new evidence, a demonstrated failure, or a materially changed constraint.
 
-`generate_sql(context, question) -> tuple[str, int, int]`
+## Scope Control
 
-- Generates raw DuckDB SQL from the context and plain English question.
-- Strips markdown fences from model output.
-- Returns `(sql_or_out_of_range_message, input_tokens, output_tokens)`.
-- If the question refers to dates outside the data range, returns a string starting with `OUT_OF_RANGE:` instead of SQL. This is a contract with `generate_sql_node`, which must check the prefix before routing to `run_sql`.
+Prefer the smallest coherent change that satisfies the task.
 
-`explain_result(question, sql, df, context) -> tuple[str, int, int]`
+Do not:
 
-- Generates a plain English explanation under 150 words for a verified result.
-- Returns `(explanation, input_tokens, output_tokens)`.
+- redesign unrelated parts of the system;
+- perform broad cleanup merely because it appears desirable;
+- introduce abstractions for hypothetical future scale;
+- add infrastructure without a current requirement;
+- fix unrelated defects as part of a scoped feature.
 
-### `graph.py`
+Report unrelated issues separately when they are material.
 
-`AgentState`
+For complex, ambiguous, cross-component, or architecture-sensitive work, inspect first and provide a concise implementation plan when useful. Identify affected components and verification. Flag architectural conflicts before editing. Avoid planning overhead for small, well-scoped changes. Plans are temporary unless the owner asks to preserve them.
 
-- Flat `TypedDict` containing: `question`, `sql`, `out_of_range`, `attempt`, `success`, `data`, `error`, `valid`, `validation_reason`, `explanation`, `final_answer`, `total_input_tokens`, `total_output_tokens`, and `cost_usd`.
-- `data` is `Optional[pd.DataFrame]`.
+## Durable Architectural Guardrails
 
-`build_graph(conn, context)`
+Use `ARCHITECTURE.md` and the accepted ADRs for full decisions and rationale. In particular, preserve these boundaries:
 
-- Captures `conn` and `context` in inner node closures.
-- Builds and compiles a LangGraph `StateGraph`.
-- Nodes: `generate_sql`, `run_sql`, `reflect`, `validate`, `explain`, `output`, and `failure`.
-- Routers: `route_after_generate`, `route_after_run`, and `route_after_validate`.
-- Accumulates real LLM input/output token counts in graph state.
-- Computes `cost_usd` through `utils.compute_cost()` in final output/failure/out-of-range paths.
+- Company-specific business rules live in active source context, not universal SQL prompts or application logic.
+- Canonical metric definitions are the sole authority for join paths. Do not infer joins from schema names or add competing join authority to table catalogs.
+- Analyst table-layer classifications remain authoritative after imports.
+- Connectors own source-specific read-only connection and schema-discovery behavior behind the shared connector boundary.
+- The execution graph returns raw terminal state; presentation belongs to consuming interfaces.
+- Results are not trusted until execution checks, deterministic validation, and semantic review succeed. Technical and semantic failures use bounded correction and fail explicitly when attempts are exhausted.
+- Bundled demo and custom context remain isolated. Source activation and switching must preserve the atomic boundary defined in ADR-007.
+- Structured metric import uses separate extraction and formatting stages. Table-and-column grounding and enforced save eligibility are the accepted contract, even where `PROJECT_STATE.md` records incomplete implementation.
 
-### `utils.py`
+Do not treat current deviations from these guardrails as precedent.
 
-`compute_cost(input_tokens, output_tokens) -> float`
+## Repository-Specific Conventions
 
-- Computes estimated `gpt-4o` cost using `$2.50` per 1M input tokens and `$10.00` per 1M output tokens.
-- Has no project dependencies and is safe to import from agent, graph, or eval code.
+- Python dependencies include OpenAI, DuckDB, pandas, LangGraph, and Streamlit.
+- Live model-driven paths require `OPENAI_API_KEY`. Reflection attempts may be configured with `MAX_REFLECTION_ATTEMPTS`.
+- Keep LLM calls out of context loading, demo database setup, date-range discovery, and raw SQL execution.
+- Keep source-specific business rules in context rather than hardcoding them in SQL generation or correction prompts.
+- Keep `utils.py` dependency-free; it is the single source of truth for cost calculation.
+- Preserve read-only behavior for custom database connectors.
+- Keep bundled demo context under `context/` separate from generated, gitignored custom context under `custom_context/`.
+- When changing an interface, update every caller. In particular, check the graph, CLI entry point, shared runner, evaluation runner, and Streamlit pages as applicable.
+- Preserve user changes in a dirty worktree and avoid unrelated edits.
 
-### `eval/logger.py`
+Consult `PROJECT_STATE.md` before relying on setup, activation, caching, layer reporting, validation edge cases, or current evaluation results. It records known implementation gaps that must not be mistaken for accepted behavior.
 
-`setup_eval_db()`
+## Verification and Testing
 
-- Opens or creates `metric_intelligence_agent/eval.db`.
-- Ensures `query_log` exists with run metadata, final SQL, pass flags, timing, token counts, cost, run type, and human review fields.
-- Returns the active DuckDB connection; caller closes it.
+Before declaring a task complete:
 
-`detect_layer_used(sql) -> str`
+- run relevant existing automated tests or evaluation checks when available and proportionate to the change;
+- run configured lint or type checks when relevant;
+- inspect the final diff for regressions and unintended scope expansion;
+- determine whether Streamlit behavior requires manual verification;
+- do not claim any check passed unless it was actually run.
 
-- Returns `None` for empty SQL.
-- Uses case-insensitive regex word boundaries.
-- Returns `aggregated` for `agg_daily_sales` or `agg_monthly_sales`.
-- Returns `fact` for `orders` or `lineitem`.
-- Returns `dimension` for only dimension table names.
-- Returns `unknown` otherwise.
+Useful project commands:
 
-`log_run(conn, final_state, response_time_ms, run_type="adhoc")`
+```powershell
+# Lightweight syntax verification without API calls
+python -m py_compile agent.py app.py graph.py main.py utils.py connectors/base.py connectors/duckdb.py connectors/sqlite.py app_pages/query.py app_pages/setup.py eval/logger.py eval/runner.py eval/test_suite.py eval/run_eval.py
 
-- Validates `run_type` is `adhoc` or `eval`.
-- Inserts one row into `query_log`.
-- For out-of-range runs, stores `NULL` for SQL, technical pass, semantic pass, layer, and error.
-- Reads `cost_usd` from `final_state`; does not recompute cost.
-- Does not close the connection.
+# End-to-end demo when OpenAI/API and DuckDB extension access are available
+python main.py
 
-### `eval/runner.py`
+# Live 13-case behavior evaluation; incurs API use and deliberate runtime delay
+python -m eval.run_eval
 
-`run_question(graph, eval_conn, question, run_type="adhoc", verbose=True)`
+# Interactive application
+streamlit run app.py
+```
 
-- Builds the full initial graph state, including zero token totals and `cost_usd`.
-- Streams the graph with `stream_mode="values"` so each update contains full state.
-- Generates an unused `_thread_id` for future checkpointer integration.
-- Logs the run through `log_run()`.
-- Returns final graph state.
-- When `verbose=True`, prints the question, reflection attempts, final answer, token totals, and estimated cost.
+The evaluation suite covers wrong layer, wrong join path, wrong metric formula, and demo out-of-range behavior. It is an LLM/database behavior evaluation, not deterministic unit coverage. Do not report a historical pass rate as current without running the suite or having a current artifact.
 
-### `eval/run_eval.py`
+For user-facing behavior—including setup, source switching, caching, displayed metadata, explanations, ratings, and other interactive flows—start the Streamlit application when practical and provide concise owner test steps with expected results. Do not claim manual UI behavior is verified unless the owner performed the steps or Codex verified it through a supported direct mechanism.
 
-`score_result(final_state, test_case) -> dict`
+If behavior can reasonably receive deterministic automated coverage, prefer adding it rather than relying permanently on manual verification.
 
-- Scores row count, required columns, expected value, detected layer, and out-of-range behavior.
-- Value checks use the first numeric non-grouping column; `expected_value_aggregation="first"` spot-checks the first ordered row.
-- `None` expected checks do not count as failures.
-- Returns pass/fail booleans plus failure mode, question, and notes.
+At completion, distinguish:
 
-`run_eval()`
+- automated checks run by Codex and their results;
+- manual Streamlit checks the owner should perform;
+- anything that remains unverified.
 
-- Initializes database, date range, context, graph, and eval DB once.
-- Runs every `TEST_CASES` question through `eval.runner.run_question(..., run_type="eval", verbose=False)`.
-- Logs every run, scores every final state, prints per-case pass/fail lines, sleeps between cases, and prints summary pass rates, average attempts, total cost, and failed checks.
-- Closes `eval_conn` in a `finally` block.
+## Self-Review
 
-### `main.py`
+Before completion, review the change against:
 
-- Initializes `conn`, date range, context, graph, and `eval_conn` once.
-- Runs three demo questions through `eval.runner.run_question()`.
-- Catches per-question graph errors and closes `eval_conn` in `finally`.
+1. the current task;
+2. `PRODUCT.md` when product behavior is relevant;
+3. `ARCHITECTURE.md` and relevant ADRs;
+4. correctness and regressions;
+5. security and data integrity;
+6. unnecessary complexity and scope expansion.
 
-## Graph Architecture
+Self-review is not an opportunity to redesign accepted architecture or propose an alternative solely because it is also valid.
 
-`graph.py` wraps the agent functions in a LangGraph `StateGraph`. These implementation decisions are intentional:
+## External Verification Reviews
 
-- Flat state, no nested dicts: `AgentState` keeps every value at the top level so node returns are simple partial state updates, routing conditions are easy to inspect, and UI integrations can read final state without unpacking nested objects.
-- Factory pattern with closure: `build_graph(conn, context)` captures the DuckDB connection and loaded context once, so graph nodes do not need to pass heavy runtime dependencies through state. State stays focused on per-question data.
-- Direct `state["key"]` access in routers: required routing fields are initialized before graph execution. Direct access makes missing state fail fast instead of silently routing based on defaults.
-- Reflection accepts technical and semantic errors: the same `reflect` node handles DuckDB execution failures from `run_sql()` and semantic validation failures from `validate_result()`, because both require the same action: rewrite SQL using the previous query plus a problem description.
-- `output_node` and `failure_node` are temporary terminal-formatting nodes: they produce `final_answer` for the command-line demo. For Streamlit, remove these nodes and render `state["data"]`, `state["explanation"]`, and `state["error"]` directly in the UI layer.
-- `MemorySaver` was removed: this demo runs each question independently and does not need checkpoint persistence. Re-add `MemorySaver` or another checkpointer when supporting pause/resume, human approval steps, long-running sessions, or multi-turn threaded conversations.
+When the owner returns review feedback from Claude, ChatGPT, or another reviewer:
 
-## Evaluation Layer
+- investigate BLOCKER or IMPORTANT findings supported by concrete evidence;
+- verify each finding against the repository and source-of-truth documents before changing code;
+- do not implement optional redesign suggestions automatically;
+- flag feedback that conflicts with `ARCHITECTURE.md` or an accepted ADR.
 
-- `eval.db` is a persistent local DuckDB database for run history; it is created by `setup_eval_db()` and ignored by git.
-- `query_log` records one row per adhoc or eval run: run ID, timestamp, question, final SQL, attempt count, technical/semantic pass flags, out-of-range flag, detected layer, last error, latency, token counts, cost, run type, and human review placeholders.
-- `eval.runner.run_question()` is the shared execution path for both `main.py` and `eval/run_eval.py`, so adhoc demos and suite runs get consistent initial state, logging, token accounting, and cost reporting.
-- `eval/test_suite.py` defines 13 cases across four failure modes: wrong layer, wrong join path, wrong metric formula, and out of range.
-- `eval/run_eval.py` scores final state against row count, required columns, expected numeric values, expected layer, and out-of-range behavior.
-- Layer detection is heuristic and SQL-text based. It is good for evaluation feedback, not a database query planner.
-- Human review fields exist in `query_log`, but no UI currently writes `human_rating` or `human_notes`.
+## Documentation Boundaries
 
-## Pipeline Flow
+Keep documentation changes minimal and purpose-specific:
 
-1. `setup_database()` creates the in-memory TPC-H database and runtime aggregate tables.
-2. `get_date_range(conn)` discovers the available order date range.
-3. `load_context(min_date, max_date)` combines company context files with data range rules.
-4. `build_graph(conn, context)` compiles the LangGraph workflow.
-5. `setup_eval_db()` opens local evaluation logging.
-6. `run_question(graph, eval_conn, question)` initializes flat graph state and streams graph execution.
-7. `generate_sql` produces SQL or an `OUT_OF_RANGE:` message.
-8. Out-of-range questions set `final_answer`, compute cost, and route directly to `END`.
-9. In-range SQL routes through `run_sql`, `reflect`, `validate`, `explain`, `output`, or `failure` based on conditional edges and `MAX_ATTEMPTS`.
-10. `log_run()` writes final state metadata to `eval.db`.
+- Update `PRODUCT.md` only when accepted product intent, user behavior, scope, or non-goals materially change.
+- Update `ARCHITECTURE.md` only when accepted system structure, component boundaries, or trust boundaries materially change. Do not use it as a bug tracker.
+- Create an ADR only for an important architectural decision worth preserving. Do not create ADRs for routine implementation choices, bugs, or deferred work. Never silently rewrite a historical decision; preserve superseded records and add the appropriate new decision.
+- Update `PROJECT_STATE.md` when a meaningful milestone materially changes current capabilities, known gaps, deferred work, or established work. Do not update it for trivial or cosmetic changes.
 
-## Conventions
+Do not duplicate large sections of the source-of-truth documents here; reference them.
 
-- No LLM calls inside `load_context()`, `setup_database()`, `get_date_range()`, or `run_sql()` ever.
-- Context files are the only thing that changes between company deployments; `agent.py` never hardcodes business rules.
-- `utils.py` is the single source of truth for `compute_cost()` and must remain dependency-free.
-- Never change function signatures without updating all callers in `graph.py`, `main.py`, `eval/runner.py`, and `eval/run_eval.py`.
-- Always run `python main.py` to verify end-to-end changes when LLM/API access is available.
-- For lightweight verification without API calls, run `python -m py_compile agent.py graph.py main.py utils.py eval/logger.py eval/runner.py eval/test_suite.py eval/run_eval.py`.
+## Communication and Completion
 
-## Known Limitations
+The owner has strong data-engineering experience and is using Codex to build application-software capabilities. Explain meaningful application-engineering decisions, recommend a default, and summarize significant tradeoffs concisely. Do not require the owner to choose between unexplained technical alternatives. Avoid explaining routine syntax unless asked.
 
-- `agg_daily_sales` and `agg_monthly_sales` are runtime tables built in DuckDB; they are not in `schema.sql`.
-- Aggregate tables include customer geography and market segment, but supplier geography is intentionally excluded to avoid dimensional explosion.
-- Demo aggregate tables are unpartitioned in-memory DuckDB tables; production warehouses should partition aggregate tables by date.
-- Relative time references such as "last year", "recent", "current", "latest", and "this quarter" are intentionally flagged as out of range when they resolve outside 1992-01-01 to 1998-08-02.
-- Semantic validation relies on LLM judgment, which may occasionally pass incorrect results or reject valid results.
-- Evaluation scoring checks expected values using the first numeric non-grouping column; unusual result column ordering can affect value checks.
-- `eval.db` is local-only and gitignored; sharing evaluation history requires exporting or copying it manually.
+At task completion, report concisely:
+
+- what changed and the important files affected;
+- tests and checks actually run, with results;
+- manual verification steps still required;
+- remaining risks or unverified items;
+- whether any source-of-truth documentation now needs updating.
