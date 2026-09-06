@@ -44,17 +44,7 @@ If either fails, agent rewrites SQL automatically.
 
 ## Evaluation Results
 
-Scored against a 13-question test suite covering four failure modes:
-
-| Failure Mode | Pass Rate |
-|---|---|
-| Layer preference | 3/3 (100%) |
-| Geography join path | 4/4 (100%) |
-| Metric formula | 3/3 (100%) |
-| Out-of-range detection | 3/3 (100%) |
-| **Overall** | **13/13 (100%)** |
-
-Average attempts per question: 1.08 — most questions answered correctly on first attempt with no reflection needed. Every run is logged to eval.db with token counts, latency, cost, and layer detection for ongoing monitoring.
+The live evaluation suite contains 13 cases covering four failure modes: wrong data layer, wrong join path, wrong metric formula, and out-of-range handling. See [PROJECT_STATE.md](PROJECT_STATE.md) for the current verification status. Evaluation runs are logged to `eval.db` with token counts, latency, cost, and layer detection for ongoing monitoring.
 
 ## Real Output Examples
 
