@@ -59,6 +59,7 @@ For custom sources, the current product can connect supported databases, discove
 - Complete the custom-source workflow for setup validation, explicit activation, and previous-session reload. This extends the existing connection, schema discovery, catalog, classification, metric-import, and review/annotation capabilities.
 - Add further database integrations beyond the currently supported sources while preserving database-agnostic behavior.
 - Add production-grade multi-user operation, authentication, shared state, and shared caching.
+- Provide a way for primary users (product managers, data scientists) to reach the application without running it themselves — some form of shared or hosted access beyond local `streamlit run`. This is explicitly deferred until the custom-source workflow is proven end-to-end: the Validate tab must exist and pass known-answer questions against a real custom source, and source activation (C6) must be exercised and confirmed working, not just accepted as an architectural boundary. Shipping access to non-technical users before that point would expose an unverified path — inconsistent with the product's own correctness-over-plausible-output principle.
 - Add retrieval-based context loading for larger bodies of company knowledge.
 
 ## Non-Goals
