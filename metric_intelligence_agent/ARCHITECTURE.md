@@ -36,6 +36,8 @@ The context layer provides three distinct forms of knowledge:
 
 These inputs are assembled into the full context used by question interpretation, SQL generation, correction, semantic review, and explanation. Context loading is deterministic and makes no LLM calls. Metric definitions are authoritative for metric behavior and are the sole authority for join paths. Table metadata supports source and layer selection but must not compete with metric definitions on joins.
 
+For custom sources, canonical metric definitions use the ADR-010 layered YAML model: entities, dimensions, measures, metrics, and a separate notes keyspace. Runtime assembly includes that structured document and relationships derived from entity foreign keys. The bundled demo retains its existing context format.
+
 ### Execution graph
 
 The execution graph owns per-question orchestration. It carries a flat state containing the question, recent question context, generated SQL, execution outcome, result data, validation outcome, retry count, explanation, and token totals. The active connection and assembled context are runtime dependencies captured outside that per-question state.
@@ -51,6 +53,8 @@ These services do not own source switching, caching, presentation, or evaluation
 ### Evaluation and observability
 
 The runner initializes graph state, executes one question to a terminal state, calculates any missing terminal cost metadata, and records the run. The evaluation store owns run identity, final SQL, attempts, technical and semantic outcomes, latency, token use, estimated cost, detected layer, and human feedback. The evaluation suite uses the same runner as interactive questions and assesses known failure modes rather than serving as application-code test coverage.
+
+Custom-source setup validation (running known-answer test questions to confirm a source is ready for activation) is a distinct third category from interactive queries and the evaluation suite. Validation runs execute through the graph like any other question but are not logged to the evaluation store, do not populate the interactive session cache, and are never presented to the user as an answered query. They exist solely to produce a pass/fail readiness signal for source activation. This exemption is deliberate, not an oversight in the "one runner and logging path" principle — that principle governs answers a user receives or an evaluation run records, not internal setup self-checks.
 
 ## End-to-End Flow
 
@@ -76,7 +80,7 @@ The runner initializes graph state, executes one question to a terminal state, c
 
 ### Custom-source setup and switching flow
 
-The current repository can connect a supported custom source, discover schema, persist analyst layer classifications, generate and review a catalog, and import metric definitions from pipeline/dashboard SQL, supported dbt manifests, and flexible structured files. Manual metric entry, setup validation, activation, and previous-session reload are not yet complete.
+The current repository can connect a supported custom source, discover schema, persist analyst layer classifications, generate and review a catalog, import metric definitions from pipeline/dashboard SQL, supported dbt manifests, and flexible structured files, and review or annotate imported definitions. Setup validation, activation, and previous-session reload are not yet complete. Blank-form manual authoring of raw metric facts is intentionally not part of the accepted design.
 
 The accepted activation boundary is nevertheless settled: all required custom context must exist, the analyst explicitly activates it, and the custom connection, assembled context, graph, and active-source identity are replaced together. The custom connection becomes query-active immediately. Switching in either direction clears conversation history, query cache, rating-submission state, the previous run identity and result, and any pending example question. The evaluation connection and history persist.
 
@@ -116,7 +120,7 @@ The LLM is not allowed to independently:
 - override canonical metric definitions,
 - or present an unvalidated result as verified.
 
-SQL generation, semantic review, explanation, ambiguity interpretation, and flexible-source extraction remain model-generated behavior even at deterministic temperature settings. System-enforced behavior includes deterministic parsing of supported SQL and dbt artifacts, context-file loading, query execution, deterministic result checks, attempt limits, routing, source-scoped session state, and run logging. Definition and assumption disclosure is currently best-effort explanation text; structured guaranteed disclosure is deferred.
+SQL generation, semantic review, explanation, ambiguity interpretation, and flexible-source extraction remain model-generated behavior even at deterministic temperature settings. System-enforced behavior includes deterministic parsing of supported SQL and dbt artifacts, context-file loading, query execution, deterministic result checks, attempt limits, routing, source-scoped session state, and run logging. Structured, provenance-tracked custom-source notes are included in runtime context, but definition and assumption disclosure in the generated explanation remains free-form and is not guaranteed.
 
 Flexible structured import uses separate extraction and presentation-formatting stages. All metric-import paths ground referenced tables and columns against discovered schema and require explicit acknowledgment before unresolved references may be saved. Metric import writes metric definitions only; table-catalog persistence belongs exclusively to Data Source setup.
 
@@ -165,8 +169,8 @@ Source switching is atomic at the architectural level: connection, context, grap
 
 ## Current Architectural Limitations / Deferred Production Architecture
 
-- Custom-source manual metric entry, validation, explicit activation, and previous-session reload are deferred; connection, discovery, classification, catalog work, SQL import, and structured import exist now.
-- Structured, guaranteed definition and assumption disclosure is deferred; current prose is LLM-generated.
+- Custom-source validation, explicit activation, and previous-session reload are deferred; connection, discovery, classification, catalog work, metric import, and metric review/annotation exist now.
+- Structured, guaranteed definition and assumption disclosure in the generated answer is deferred; structured custom-source notes reach runtime context, but explanation prose remains LLM-generated.
 - Connectors beyond DuckDB and SQLite are deferred.
 - Retrieval-based context loading is deferred; the full static context is currently supplied to model stages.
 - Production multi-user authentication, shared sessions, shared caching, and shared evaluation storage are deferred.
@@ -180,4 +184,4 @@ Source switching is atomic at the architectural level: connection, context, grap
 
 ## Open Architecture Questions
 
-No unresolved architecture decisions remain from the reconciliation. The items above are implementation gaps or explicitly deferred capabilities, not open design questions.
+The previously open question of whether custom-source setup-validation runs belong in evaluation logging is resolved by the deliberate exemption documented above. No unresolved architecture decisions remain from the reconciliation. The items above are implementation gaps or explicitly deferred capabilities, not open design questions.

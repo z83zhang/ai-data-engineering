@@ -30,6 +30,8 @@ Manual entry of raw facts (typing formulas/joins from scratch) is eliminated as 
 
 **Neutral:** Authority order is unchanged (metric definitions still own joins/formulas; table catalog unaffected). Does not reopen the deferred retrieval-based context-loading decision — the layered model still assembles into full static context per question.
 
+**Runtime context-assembly addendum (2026-09-06):** Runtime context integration was part of this decision's original scope but was omitted from the initial six-phase implementation plan. The follow-up Phase 7 closed that gap: custom-source context assembly now prefers `metric_definitions.yaml`, falls back to legacy `metric_definitions.md` when YAML is absent, and appends relationships derived from entity foreign keys. The bundled demo context path and content remain untouched and were verified byte-for-byte. The original Consequences statement that structured notes close the assumption-disclosure gap refers specifically to those notes reaching runtime context; the generated explanation remains free-form LLM prose, so guaranteed disclosure in the output remains open.
+
 ## Alternatives Considered
 
 - **Flat format + optional trusted reference-SQL field** (Wren's own fallback pattern for edge cases). Rejected as primary design — doesn't fix the representational ceiling or deduplicate relationships.
