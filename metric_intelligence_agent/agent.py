@@ -5,6 +5,8 @@ from pathlib import Path
 import duckdb
 from openai import OpenAI
 
+from metric_import import load_metric_definitions_yaml, render_metric_definitions_yaml
+
 
 api_key = os.environ.get("OPENAI_API_KEY")
 if not api_key:
@@ -37,9 +39,10 @@ def load_context(min_date=None, max_date=None, context_dir=None):
         max_date: Optional latest available date as a YYYY-MM-DD string.
             The data-range instructions are included only when both dates are
             provided.
-        context_dir: Optional directory containing table_catalog.md,
-            metric_definitions.md, and schema.sql. Defaults to the context
-            directory alongside this file.
+        context_dir: Optional custom-context directory containing table_catalog.md,
+            schema.sql, and preferably metric_definitions.yaml. Legacy custom
+            contexts may provide metric_definitions.md instead. Defaults to the
+            bundled demo context directory alongside this file.
 
     Returns a string in this format:
         === TABLE CATALOG ===
@@ -63,18 +66,37 @@ def load_context(min_date=None, max_date=None, context_dir=None):
         if context_dir is not None
         else Path(__file__).parent / "context"
     )
-    files = [
-        ("TABLE CATALOG", Path("table_catalog.md")),
-        ("METRIC DEFINITIONS", Path("metric_definitions.md")),
-        ("SCHEMA", Path("schema.sql")),
-    ]
-
     sections = []
-    for title, relative_path in files:
+    for title, relative_path in (
+        ("TABLE CATALOG", Path("table_catalog.md")),
+        ("SCHEMA", Path("schema.sql")),
+    ):
         path = context_path / relative_path
         if not path.exists():
             raise FileNotFoundError(f"Context file not found: {path}")
         sections.append(f"=== {title} ===\n{path.read_text(encoding='utf-8')}")
+
+    metric_yaml_path = context_path / "metric_definitions.yaml"
+    metric_markdown_path = context_path / "metric_definitions.md"
+    if context_dir is not None and metric_yaml_path.is_file():
+        metric_document = load_metric_definitions_yaml(metric_yaml_path)
+        metric_content = render_metric_definitions_yaml(metric_document).rstrip()
+        metric_section = f"=== METRIC DEFINITIONS ===\n{metric_content}"
+        relationship_lines = _derived_relationship_lines(metric_document)
+        sections.insert(1, metric_section)
+        sections.insert(
+            2,
+            "=== DERIVED RELATIONSHIPS ===\n"
+            + ("\n".join(relationship_lines) if relationship_lines else "None declared."),
+        )
+    else:
+        if not metric_markdown_path.exists():
+            raise FileNotFoundError(f"Context file not found: {metric_markdown_path}")
+        sections.insert(
+            1,
+            "=== METRIC DEFINITIONS ===\n"
+            + metric_markdown_path.read_text(encoding="utf-8"),
+        )
 
     if min_date is not None and max_date is not None:
         sections.append(
@@ -98,6 +120,18 @@ def load_context(min_date=None, max_date=None, context_dir=None):
         )
 
     return "\n\n".join(sections)
+
+
+def _derived_relationship_lines(document):
+    lines = []
+    for entity_name, entity in document["entities"].items():
+        for key in entity.get("keys") or []:
+            if key.get("type") == "foreign":
+                lines.append(
+                    f"- {entity_name}.{key['column']} -> "
+                    f"{key['references_entity']} (foreign key)"
+                )
+    return sorted(lines, key=str.casefold)
 
 
 def setup_database():
