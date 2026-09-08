@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import pandas as pd
 import streamlit as st
 
-from agent import client
+from agent import get_openai_client
 
 
 MAX_SCHEMA_CHARS = 32000
@@ -29,7 +29,7 @@ class BaseConnector(ABC):
 
     def generate_schema_sql(self, schema_df: pd.DataFrame) -> str:
         """Generate CREATE TABLE statements for discovered schema metadata."""
-        return self._generate_schema_sql(schema_df, client)
+        return self._generate_schema_sql(schema_df, get_openai_client())
 
     def _generate_schema_sql(self, schema_df: pd.DataFrame, openai_client) -> str:
         required_columns = {"table_name", "column_name", "data_type"}

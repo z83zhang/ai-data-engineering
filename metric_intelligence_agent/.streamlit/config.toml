@@ -1,2 +1,7 @@
 [server]
 runOnSave = true
+
+[client]
+# Community Cloud reads this repository-level config. Local developers can
+# override it with STREAMLIT_CLIENT_SHOW_ERROR_DETAILS=full when debugging.
+showErrorDetails = "none"

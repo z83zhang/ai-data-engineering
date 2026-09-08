@@ -119,6 +119,34 @@ To launch the Streamlit interface:
 streamlit run app.py
 ```
 
+## Hosted Test Demo
+
+Hosted URL: pending the owner's first Streamlit Community Cloud deployment.
+
+The hosted test deployment is intentionally narrower than the local app:
+
+- It uses only the bundled synthetic TPC-H dataset. No real, sensitive, or
+  personal data is included or processed by the demo.
+- Each tester supplies their own OpenAI API key in a password-masked field.
+  The key remains in that Streamlit session's memory, is not written to disk or
+  application logs, and usage is charged to the tester's OpenAI account.
+- Sessions are ephemeral. There are no accounts, and conversations, cached
+  answers, and API keys do not persist across visits.
+- Custom-source setup requires cloning and running the project locally.
+
+For the Community Cloud deployment, select the `main` branch and
+`metric_intelligence_agent/app.py` entry point. In the app's Advanced settings,
+add this non-secret configuration value to Secrets:
+
+```toml
+APP_DEPLOYMENT_MODE = "hosted"
+```
+
+Do not add a shared `OPENAI_API_KEY`; the hosted demo uses per-session tester
+keys. The repository config suppresses browser-visible exception details. For
+local debugging, temporarily override it with
+`STREAMLIT_CLIENT_SHOW_ERROR_DETAILS=full`.
+
 ## Generalization
 
 The Setup page can connect read-only DuckDB and SQLite files, discover tables
@@ -202,7 +230,7 @@ Conditional routing controls the loop:
   connector interface in `connectors/`. See `connectors/base.py` to implement a
   new connector.
 - Metric extraction from trusted pipeline and dashboard SQL.
-- Setup validation and activation for fully configured custom sources.
+- A production-grade hosted experience beyond the TPC-H-only test demo.
 
 ## Production Extensions
 

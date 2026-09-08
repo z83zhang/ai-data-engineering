@@ -6,10 +6,10 @@ from uuid import uuid4
 import duckdb
 
 
-def setup_eval_db():
-    """Create or open metric_intelligence_agent/eval.db and ensure query_log exists."""
-    db_path = Path(__file__).parent.parent / "eval.db"
-    conn = duckdb.connect(str(db_path))
+def setup_eval_db(db_path=None):
+    """Create or open the evaluation store and ensure query_log exists."""
+    resolved_path = db_path or (Path(__file__).parent.parent / "eval.db")
+    conn = duckdb.connect(str(resolved_path))
     conn.execute("""
         CREATE TABLE IF NOT EXISTS query_log (
             run_id VARCHAR PRIMARY KEY,

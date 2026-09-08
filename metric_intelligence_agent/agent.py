@@ -8,11 +8,15 @@ from openai import OpenAI
 from metric_import import load_metric_definitions_yaml, render_metric_definitions_yaml
 
 
-api_key = os.environ.get("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY environment variable is not set.")
-client = OpenAI(api_key=api_key)
 MAX_ATTEMPTS = int(os.environ.get("MAX_REFLECTION_ATTEMPTS", 3))
+
+
+def get_openai_client(api_key=None):
+    """Create an OpenAI client without retaining the API key globally."""
+    resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
+    if not resolved_key:
+        raise ValueError("OPENAI_API_KEY environment variable is not set.")
+    return OpenAI(api_key=resolved_key)
 
 SQL_RULES = """Rules:
 - Prefer the highest available data layer as specified in the table catalog. Only fall back to lower layers when the question cannot be answered from a higher layer.
@@ -234,7 +238,7 @@ def run_sql(conn, sql):
         }
 
 
-def reflect_sql(conn, context, question, sql, error, attempt):
+def reflect_sql(conn, context, question, sql, error, attempt, openai_client=None):
     """
     Rewrite failed SQL using the LLM, run it, and return the execution result.
 
@@ -297,7 +301,7 @@ def reflect_sql(conn, context, question, sql, error, attempt):
         f"Problem:\n{error}\n\n"
         "Rewrite the SQL to fix the problem."
     )
-    response = client.chat.completions.create(
+    response = (openai_client or get_openai_client()).chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": system_message},
@@ -317,7 +321,7 @@ def reflect_sql(conn, context, question, sql, error, attempt):
     return result
 
 
-def validate_result(question, sql, df, context):
+def validate_result(question, sql, df, context, openai_client=None):
     """
     Validate a query result with Python checks, then one LLM semantic check.
 
@@ -399,7 +403,7 @@ def validate_result(question, sql, df, context):
         "VALID: no\n"
         "REASON: explanation of what looks wrong"
     )
-    response = client.chat.completions.create(
+    response = (openai_client or get_openai_client()).chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": system_message},
@@ -433,7 +437,12 @@ def validate_result(question, sql, df, context):
     }
 
 
-def generate_sql(context, question, conversation_history=None):
+def generate_sql(
+    context,
+    question,
+    conversation_history=None,
+    openai_client=None,
+):
     """
     Generate a DuckDB SQL query from warehouse context and a user question.
 
@@ -456,7 +465,7 @@ def generate_sql(context, question, conversation_history=None):
             + question
         )
 
-    response = client.chat.completions.create(
+    response = (openai_client or get_openai_client()).chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": system_message},
@@ -470,7 +479,7 @@ def generate_sql(context, question, conversation_history=None):
     return sql, response.usage.prompt_tokens, response.usage.completion_tokens
 
 
-def explain_result(question, sql, df, context):
+def explain_result(question, sql, df, context, openai_client=None):
     """
     Explain a verified query result in plain English for a non-technical user.
 
@@ -506,7 +515,7 @@ def explain_result(question, sql, df, context):
         "6. Stays under 150 words.\n"
         "7. Does not mention SQL, DuckDB, DataFrames, or technical details."
     )
-    response = client.chat.completions.create(
+    response = (openai_client or get_openai_client()).chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": system_message},

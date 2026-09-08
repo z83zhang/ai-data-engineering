@@ -6,7 +6,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from agent import client
+from agent import get_openai_client
 from connectors.duckdb import DuckDBConnector
 from connectors.sqlite import SQLiteConnector
 from dbt_semantic_import import extract_dbt_semantic_document
@@ -114,7 +114,7 @@ def _clean_catalog_response(content):
 
 
 def _metric_prose(facts, name_hint, trust_level):
-    response = client.chat.completions.create(
+    response = get_openai_client().chat.completions.create(
         model="gpt-4o",
         messages=[
             {
@@ -937,7 +937,7 @@ def _show_table_catalog(custom_context):
                 schema_sql = (custom_context / "schema.sql").read_text(
                     encoding="utf-8"
                 )
-                response = client.chat.completions.create(
+                response = get_openai_client().chat.completions.create(
                     model="gpt-4o",
                     messages=[
                         {
@@ -1017,7 +1017,7 @@ def _show_table_catalog(custom_context):
                     schema_sql = (custom_context / "schema.sql").read_text(
                         encoding="utf-8"
                     )
-                    response = client.chat.completions.create(
+                    response = get_openai_client().chat.completions.create(
                         model="gpt-4o",
                         messages=[
                             {
@@ -1093,7 +1093,7 @@ def _show_table_catalog(custom_context):
                 schema_sql = (custom_context / "schema.sql").read_text(
                     encoding="utf-8"
                 )
-                response = client.chat.completions.create(
+                response = get_openai_client().chat.completions.create(
                     model="gpt-4o",
                     messages=[
                         {
@@ -1496,7 +1496,7 @@ def show():
                             extraction = extract_structured_semantic_facts(
                                 source_content,
                                 structured_format,
-                                client,
+                                get_openai_client(),
                             )
                         layered = build_structured_semantic_document(extraction)
                         if not layered["document"]["entities"]:

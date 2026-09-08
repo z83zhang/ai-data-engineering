@@ -4,7 +4,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from agent import client
+from agent import get_openai_client
 from connectors.base import BaseConnector
 
 
@@ -86,7 +86,7 @@ class SQLiteConnector(BaseConnector):
 
         prompt_schema = json.dumps(discovered, default=str)
         try:
-            response = client.chat.completions.create(
+            response = get_openai_client().chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {

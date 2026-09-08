@@ -30,13 +30,14 @@ class AgentState(TypedDict):
     total_output_tokens: int
 
 
-def build_graph(conn, context):
+def build_graph(conn, context, openai_client=None):
     def generate_sql_node(state):
         """Generate SQL or stop early for out-of-range questions."""
         sql, input_tokens, output_tokens = generate_sql(
             context,
             state["question"],
             state["conversation_history"],
+            openai_client=openai_client,
         )
         total_input_tokens = state["total_input_tokens"] + input_tokens
         total_output_tokens = state["total_output_tokens"] + output_tokens
@@ -79,6 +80,7 @@ def build_graph(conn, context):
             state["sql"],
             state["error"],
             state["attempt"],
+            openai_client=openai_client,
         )
         update = {
             "sql": result["sql"],
@@ -107,6 +109,7 @@ def build_graph(conn, context):
             state["sql"],
             state["data"],
             context,
+            openai_client=openai_client,
         )
         reason = validation["reason"]
         result = {
@@ -130,6 +133,7 @@ def build_graph(conn, context):
             state["sql"],
             state["data"],
             context,
+            openai_client=openai_client,
         )
         total_input_tokens = state["total_input_tokens"] + input_tokens
         total_output_tokens = state["total_output_tokens"] + output_tokens

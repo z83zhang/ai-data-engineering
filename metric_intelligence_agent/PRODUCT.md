@@ -59,7 +59,7 @@ For custom sources, the current product can connect supported databases, discove
 - Add previous-session custom-source connection reload without persisting database credentials.
 - Add further database integrations beyond the currently supported sources while preserving database-agnostic behavior.
 - Add production-grade multi-user operation, authentication, shared state, and shared caching.
-- Provide a way for primary users (product managers, data scientists) to reach the application without running it themselves — some form of shared or hosted access beyond local `streamlit run`. Its prerequisite is now satisfied: the Validate tab passed known-answer questions against a real custom source, activation was exercised successfully, and a custom-source Query-mode answer was confirmed against independent ground truth. Hosted/shared access itself remains deferred and has not started.
+- Expand hosted access beyond the narrow, synthetic TPC-H-only test deployment into production-grade multi-user access. The first test deployment supports ephemeral BYO-key sessions and deliberately excludes custom-source setup, accounts, shared state, and server-side key persistence.
 - Add retrieval-based context loading for larger bodies of company knowledge.
 
 ## Non-Goals

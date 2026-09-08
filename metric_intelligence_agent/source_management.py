@@ -19,6 +19,8 @@ def initialize_session(
     max_date,
     context_dir=None,
     data_source="demo",
+    openai_client=None,
+    eval_db_path=None,
 ):
     """Assign database-dependent resources and metadata for the active source."""
     if context is None:
@@ -26,9 +28,13 @@ def initialize_session(
 
     st.session_state.conn = conn
     st.session_state.context = context
-    st.session_state.graph = build_graph(conn, context)
+    st.session_state.graph = build_graph(
+        conn,
+        context,
+        openai_client=openai_client,
+    )
     if "eval_conn" not in st.session_state:
-        st.session_state.eval_conn = setup_eval_db()
+        st.session_state.eval_conn = setup_eval_db(eval_db_path)
     st.session_state.data_source = data_source
     st.session_state.min_date = min_date
     st.session_state.max_date = max_date

@@ -3,7 +3,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from agent import client
+from agent import get_openai_client
 from connectors.base import BaseConnector
 
 
@@ -63,7 +63,7 @@ class DuckDBConnector(BaseConnector):
 
     def generate_schema_sql(self, schema_df: pd.DataFrame) -> str:
         try:
-            return self._generate_schema_sql(schema_df, client)
+            return self._generate_schema_sql(schema_df, get_openai_client())
         except Exception as error:
             if isinstance(error, (ValueError, RuntimeError)):
                 raise
