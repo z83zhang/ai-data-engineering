@@ -4,11 +4,14 @@ from copy import deepcopy
 from manual_semantic_review import (
     RelationshipCorrectionError,
     correct_relationship,
+    delete_metric,
     derived_relationships,
     grouped_entities,
     grouped_metrics,
+    metric_deletion_impact,
     metric_facts,
     relationship_label,
+    shared_metric_dependencies,
 )
 from metric_import import update_metric_notes, validate_metric_document
 
@@ -123,6 +126,42 @@ class ManualSemanticReviewTests(unittest.TestCase):
                 column="customer_id",
                 key_type="unique",
             )
+
+    def test_delete_metric_removes_metric_notes_and_unique_dependencies(self):
+        document = example_document()
+
+        updated = delete_metric(document, "REVENUE")
+
+        self.assertNotIn("revenue", updated["metrics"])
+        self.assertNotIn("revenue", updated["notes"])
+        self.assertEqual(updated["measures"], [])
+        self.assertEqual(updated["entities"], {"customers": document["entities"]["customers"]})
+        self.assertIn("revenue", document["metrics"])
+
+    def test_shared_metric_dependency_reports_other_consumers(self):
+        document = example_document()
+        document["metrics"]["revenue_copy"] = {
+            "type": "derived",
+            "expression": "AVG(orders.revenue)",
+            "filters": [],
+        }
+        document["notes"]["revenue_copy"] = {
+            "description": "", "business_rules": "", "caveats": "",
+            "ambiguity_rules": "",
+        }
+
+        self.assertEqual(
+            shared_metric_dependencies(document, "revenue"),
+            {"orders.revenue": ["revenue_copy"]},
+        )
+        self.assertEqual(
+            metric_deletion_impact(document, "revenue"),
+            {
+                "shared_measures": {"orders.revenue": ["revenue_copy"]},
+                "removed_measures": [],
+                "removed_entities": [],
+            },
+        )
 
 
 def example_document():

@@ -14,23 +14,23 @@
 - **Custom file-database connections.** DuckDB files open read-only. SQLite files are attached read-only through DuckDB. Both connectors test connections and discover schema through source-specific paths.
 - **dbt-manifest metric import.** Manifest schema v10-v11 is parsed deterministically into the layered ADR-010 YAML format of entities, dimensions, measures, metrics, and separately managed notes. Relationship direction resolves from declared relationships tests or schema-declared foreign-key constraints (`to`/`to_columns` or legacy expressions); genuinely ambiguous or absent direction requires explicit analyst confirmation before saving.
 - **SQL and other structured metric import.** Pipeline/dashboard SQL is parsed deterministically for factual metric content, with the LLM limited to business-facing notes. LookML, Cube, and similar structured formats use grounded LLM extraction into the layered ADR-010 YAML format of entities, dimensions, measures, metrics, and notes, normalize measures to full aggregate expressions, and promote independently resolvable queryable measures to simple metrics. Explicit source-native relationship direction is retained; unresolved direction requires analyst confirmation. All paths ground tables and columns, require acknowledgment for schema mismatches, support YAML review, and save metric definitions only.
-- **Metric-definition review and annotation.** The Manual tab provides grouped review of parsed entities, dimensions, measures, metrics, derived relationships, and notes. Analysts can edit provenance-tracked metric notes and correct saved relationships without using a blank raw-fact entry form.
+- **Metric-definition review and annotation.** The Manual tab provides grouped review of parsed entities, dimensions, measures, metrics, derived relationships, and notes. Analysts can edit provenance-tracked metric notes, delete individual metrics with confirmation and dependency visibility, and correct saved relationships without using a blank raw-fact entry form.
+- **Custom-source validation and activation.** Analysts can persist up to five source-isolated known-answer questions, run all or selected questions through the production execution graph without evaluation logging or interactive caching, inspect SQL/results/explanations, record the final human pass/fail decision, and explicitly activate a custom source after all questions pass. Context saves invalidate the readiness signal until validation is refreshed. This flow, atomic activation, and a correct custom-source Query-mode answer have been exercised live against jaffle_shop.
 
 ### Present but partially complete
 
-- **Custom-source setup.** The UI can connect a supported source, discover schema, generate and save schema context, collect and persist analyst table-layer classifications, generate/review/refine a table catalog, enrich it from supplied documentation, and create backups when saving.
-- **Custom source switching infrastructure.** The application has a source-switch operation that replaces the connection, context, graph, and source identity while clearing question-specific state and preserving evaluation logging. The setup UI can switch from an already active custom source back to the demo, but it cannot activate or reload a custom source.
+- **Custom-source setup.** The UI can connect a supported source, discover schema, generate and save schema context, collect and persist analyst table-layer classifications, generate/review/refine a table catalog, enrich it from supplied documentation, validate known-answer questions, and activate the prepared source. Previous-session connection reload remains unavailable.
+- **Custom source switching infrastructure.** The application has a source-switch operation that replaces the connection, context, graph, and source identity while clearing question-specific state and preserving evaluation logging. The setup UI can activate the connected custom source and switch an active custom source back to the demo. It cannot reload a custom database connection after an application restart.
 - **Definition and assumption disclosure.** Custom-source runtime context assembly includes structured, provenance-tracked notes alongside layered metric facts and derived relationships. The explanation prompt can use that context, but its output remains free-form LLM prose; structured, guaranteed disclosure in the answer is not implemented.
 - **Database-agnostic structure.** Business context is externalized and connectors share a common interface, but SQL wording, custom layer detection, monitoring, and evaluation are not yet fully source-agnostic.
 
 ## Current Apparent Implementation Focus
 
-Recent repository activity and the remaining setup placeholders are concentrated on the custom-source setup path. Connection and schema discovery, table classification/catalog creation, metric import, and metric review/annotation exist; the unfinished portion includes validation and activation of a custom source for querying. This is an observation about the current repository, not an owner-established priority or roadmap.
+Recent repository activity completed custom-source validation and activation and extended metric review with confirmed single-metric deletion. Previous-session custom-connection reload remains the narrower unfinished setup capability. This is an observation about the current repository, not an owner-established priority or roadmap.
 
 ## Partially Implemented / Known Gaps
 
-- Custom context can be prepared and detected, but there is no UI control to validate, activate, or reload it as the live query source.
-- The Validate tab remains a placeholder.
+- Custom context and validation artifacts persist, but the application does not restore a previous custom database connection after restart; the analyst must reconnect before validation or activation.
 - Setup completion checks file existence rather than validating content completeness, catalog coverage, metric references, or generated schema fidelity.
 - Metric definitions are the accepted sole join-path authority, but the bundled table catalog contains joins and catalog enrichment can write them.
 - Generated schema SQL is LLM output constrained by prompts; it is not parsed, executed, or compared deterministically with discovered metadata before saving.
@@ -44,7 +44,7 @@ Recent repository activity and the remaining setup placeholders are concentrated
 
 ## Deferred Production Work
 
-- Complete setup validation, explicit custom-source activation, and previous-session reload.
+- Add previous-session custom-source connection reload without persisting database credentials.
 - Provide structured, guaranteed definition and assumption disclosure in the generated answer; structured custom-source notes now reach runtime context, but explanation output remains free-form.
 - Add database integrations beyond DuckDB and SQLite while extending dialect, layer-reporting, monitoring, and evaluation behavior accordingly.
 - Add production multi-user authentication, shared sessions, shared caching, and shared evaluation storage.
@@ -67,7 +67,7 @@ Recent repository activity and the remaining setup placeholders are concentrated
 - The repository contains a 13-case live evaluation suite for four failure modes: wrong data layer, wrong join path, wrong metric formula, and out-of-range handling.
 - Evaluation scoring checks applicable row counts, required columns, selected numeric values, detected layers, and out-of-range state. Runs use the same graph runner and logger as interactive queries.
 - The suite requires live OpenAI access and the runtime TPC-H database. No current evaluation-run artifact is tracked, so the pass rate for the present prompts and model is **[NEEDS VERIFICATION]**.
-- There are no conventional deterministic unit or integration test files for the graph, connectors, setup helpers, caching, source switching, or logging.
+- Deterministic tests cover setup import/review helpers, validation persistence and UI behavior, metric deletion, and custom-source activation state. The model-driven graph behavior and 13-case evaluation suite still require live OpenAI execution.
 - The deterministic result checks exercised at runtime cover zero rows and all-null numeric columns; negative numeric values are warnings passed to semantic review rather than automatic failures.
 
 ## Recently Completed Significant Work
@@ -84,10 +84,14 @@ Recent repository activity and the remaining setup placeholders are concentrated
 - Added the Streamlit chat experience with caching, recent-question context, input validation, result metadata, and feedback.
 - Added the shared evaluation runner, persistent run logging, token/cost tracking, and the 13-case failure-mode evaluation suite.
 - Removed graph-owned output/failure presentation so terminal and UI entry points render raw execution state independently.
+- Built the Validate tab with source-isolated persisted question sets, advisory single-value checks, analyst-final pass/fail decisions, subset reruns, per-question status, readiness staleness, and activation gating. Live verification against jaffle_shop covered known-answer validation, atomic activation, and a correct Query-mode payment-total answer.
+- Fixed activation's duplicate-widget failure by moving source lifecycle helpers out of the Streamlit entry point into `source_management.py`; setup pages no longer import and re-execute `app.py`.
+- Grounded the jaffle_shop custom semantic context by adding the payments relationship, correcting revenue/customer-total joins, adding `avg_order_amount`, removing the unsupported customer-region rule, and deleting the ungrounded `avg_order_value_test` fixture.
+- Added confirmed single-metric deletion to the Manual review tab. Deletion removes the metric, notes, and uniquely owned measure/entity facts; preserves and identifies shared dependencies; creates a backup; and invalidates validation readiness.
 
 ## Next Established Work
 
-- Implement setup validation, explicit custom-source activation, and previous-session reload using the accepted source-switch boundary.
+- Implement previous-session custom-source connection reload using the accepted source-switch boundary without persisting credentials.
 - Correct context-dependent cache identity and create distinct logging/feedback attribution for cached interactions.
 - Make custom-source layer detection, monitoring, and evaluation source-aware.
 - Add connector-level foreign-key discovery as a separately reviewed extension; current structured-format imports use source-native relationship declarations and analyst confirmation because connector schema discovery exposes columns only.
