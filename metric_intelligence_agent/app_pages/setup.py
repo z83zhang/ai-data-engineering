@@ -26,9 +26,11 @@ from metric_import import (
 )
 from manual_semantic_review import (
     correct_relationship,
+    delete_metric,
     derived_relationships,
     grouped_entities,
     grouped_metrics,
+    metric_deletion_impact,
     metric_facts,
     relationship_label,
 )
@@ -40,6 +42,8 @@ from structured_semantic_import import (
     build_structured_semantic_document,
     extract_structured_semantic_facts,
 )
+from setup_validation import invalidate_readiness
+from source_management import get_demo_database, switch_data_source
 
 
 CONNECTION_TYPES = [
@@ -102,6 +106,7 @@ def _save_catalog(catalog_path, content):
             encoding="utf-8",
         )
     catalog_path.write_text(content, encoding="utf-8")
+    invalidate_readiness(catalog_path.parent, st.session_state.get("setup_source_path"))
 
 
 def _clean_catalog_response(content):
@@ -183,6 +188,7 @@ def _save_sql_metric_document(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         shutil.copy2(metric_path, metric_path.with_suffix(f".{timestamp}.bak"))
     save_metric_definitions_yaml(metric_path, merged)
+    invalidate_readiness(metric_path.parent, st.session_state.get("setup_source_path"))
 
 
 def _save_manual_metric_document(metric_path, document):
@@ -190,6 +196,7 @@ def _save_manual_metric_document(metric_path, document):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         shutil.copy2(metric_path, metric_path.with_suffix(f".{timestamp}.bak"))
     save_metric_definitions_yaml(metric_path, document)
+    invalidate_readiness(metric_path.parent, st.session_state.get("setup_source_path"))
 
 
 def _manual_saved_message():
@@ -238,6 +245,36 @@ def _render_metric_note_editor(metric_path, document, metric_name):
                 _save_manual_metric_document(metric_path, updated)
                 st.session_state.manual_review_saved = f"Saved notes for {metric_name}."
                 st.rerun()
+
+        st.divider()
+        impact = metric_deletion_impact(document, metric_name)
+        shared = impact["shared_measures"]
+        if shared:
+            details = "; ".join(
+                f"`{measure}` is also used by {', '.join(f'`{name}`' for name in names)}"
+                for measure, names in shared.items()
+            )
+            st.info(f"Shared dependencies will be preserved: {details}.")
+        else:
+            st.caption(
+                "Unshared dependencies removed with this metric: "
+                f"measures {impact['removed_measures'] or 'none'}; "
+                f"entities {impact['removed_entities'] or 'none'}."
+            )
+        confirmed = st.checkbox(
+            f"Confirm deletion of {metric_name}",
+            key=f"manual_metric_delete_confirm_{metric_name}",
+        )
+        if st.button(
+            "Delete metric",
+            key=f"manual_metric_delete_{metric_name}",
+            disabled=not confirmed,
+        ):
+            latest = load_metric_definitions_yaml(metric_path)
+            updated = delete_metric(latest, metric_name)
+            _save_manual_metric_document(metric_path, updated)
+            st.session_state.manual_review_saved = f"Deleted metric {metric_name}."
+            st.rerun()
 
 
 def _relationship_changed(relationship, owner, column, key_type, reference):
@@ -865,10 +902,14 @@ def _show_table_catalog(custom_context):
             key="optional_context_input",
         )
     st.session_state.layer_classifications = layer_classifications
-    layers_path.write_text(
-        json.dumps(layer_classifications, indent=2),
-        encoding="utf-8",
-    )
+    if layer_classifications != saved_layers:
+        layers_path.write_text(
+            json.dumps(layer_classifications, indent=2),
+            encoding="utf-8",
+        )
+        invalidate_readiness(
+            custom_context, st.session_state.get("setup_source_path")
+        )
 
     st.divider()
     st.subheader("Step 2b: Generate Table Catalog")
@@ -1164,8 +1205,6 @@ def show():
             if st.checkbox("I understand"):
                 if st.button("Switch to TPC-H demo"):
                     from agent import get_date_range
-                    from app import get_demo_database, switch_data_source
-
                     conn = get_demo_database()
                     min_date, max_date = get_date_range(conn)
                     switch_data_source(
@@ -1272,6 +1311,9 @@ def show():
                         (context_dir / "schema.sql").write_text(
                             schema_sql,
                             encoding="utf-8",
+                        )
+                        invalidate_readiness(
+                            context_dir, st.session_state.get("setup_source_path")
                         )
                         st.session_state.schema_df = schema_df
                         st.session_state.table_count = _table_count(schema_df)
@@ -1691,6 +1733,11 @@ def show():
             _render_current_metric_definitions(sql_metric_path, legacy_metric_path)
 
     with validate_tab:
-        st.info(
-            "Complete Data Source and Metric Definitions tabs before validating."
-        )
+        if not (_tab1_complete() and _tab2_complete()):
+            st.warning(
+                "Complete Data Source and Metric Definitions tabs before validating."
+            )
+        else:
+            from app_pages.validate import show as show_validation
+
+            show_validation(custom_context)

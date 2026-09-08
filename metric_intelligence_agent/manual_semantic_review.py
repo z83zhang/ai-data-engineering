@@ -1,3 +1,4 @@
+import re
 from copy import deepcopy
 
 from metric_import import parse_metric_definitions_yaml, render_metric_definitions_yaml
@@ -5,6 +6,135 @@ from metric_import import parse_metric_definitions_yaml, render_metric_definitio
 
 class RelationshipCorrectionError(ValueError):
     pass
+
+
+def metric_measure_references(document, metric_name):
+    """Return declared measures referenced by one metric."""
+    actual_name = _mapping_name(document.get("metrics", {}), metric_name)
+    if actual_name is None:
+        raise KeyError(metric_name)
+    metric = document["metrics"][actual_name]
+    declared = [measure["name"] for measure in document.get("measures", [])]
+    references = []
+    for field in ("measure", "numerator", "denominator"):
+        requested = metric.get(field)
+        actual = next(
+            (name for name in declared if name.casefold() == str(requested).casefold()),
+            None,
+        )
+        if actual and actual not in references:
+            references.append(actual)
+    expression = str(metric.get("expression", ""))
+    for name in declared:
+        if name in references:
+            continue
+        if re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])",
+            expression,
+            re.IGNORECASE,
+        ):
+            references.append(name)
+    return references
+
+
+def shared_metric_dependencies(document, metric_name):
+    """Map this metric's referenced measures to other metrics that use them."""
+    target_name = _mapping_name(document.get("metrics", {}), metric_name)
+    if target_name is None:
+        raise KeyError(metric_name)
+    shared = {}
+    for measure_name in metric_measure_references(document, target_name):
+        consumers = [
+            other_name
+            for other_name in document.get("metrics", {})
+            if other_name.casefold() != target_name.casefold()
+            and measure_name in metric_measure_references(document, other_name)
+        ]
+        if consumers:
+            shared[measure_name] = consumers
+    return shared
+
+
+def metric_deletion_impact(document, metric_name):
+    """Describe semantic facts uniquely owned by a metric versus shared ones."""
+    references = metric_measure_references(document, metric_name)
+    shared = shared_metric_dependencies(document, metric_name)
+    removed_measures = [name for name in references if name not in shared]
+    removed_measure_keys = {name.casefold() for name in removed_measures}
+    remaining_measures = [
+        measure
+        for measure in document.get("measures", [])
+        if measure["name"].casefold() not in removed_measure_keys
+    ]
+    candidate_entities = {
+        measure["entity"].casefold(): measure["entity"]
+        for measure in document.get("measures", [])
+        if measure["name"].casefold() in removed_measure_keys
+    }
+    target_name = _mapping_name(document.get("metrics", {}), metric_name)
+    remaining_metrics = {
+        name: metric
+        for name, metric in document.get("metrics", {}).items()
+        if name.casefold() != target_name.casefold()
+    }
+    removed_entities = []
+    for folded_entity, entity_name in candidate_entities.items():
+        has_measure = any(
+            str(measure.get("entity", "")).casefold() == folded_entity
+            for measure in remaining_measures
+        )
+        has_dimension = any(
+            str(dimension.get("entity", "")).casefold() == folded_entity
+            for dimension in document.get("dimensions", [])
+        )
+        is_referenced = any(
+            str(key.get("references_entity", "")).casefold() == folded_entity
+            for owner, entity in document.get("entities", {}).items()
+            if owner.casefold() != folded_entity
+            for key in entity.get("keys", [])
+        )
+        has_filter = any(
+            str(item.get("dimension", "")).casefold().startswith(
+                f"{folded_entity}."
+            )
+            for metric in remaining_metrics.values()
+            for item in metric.get("filters", [])
+        )
+        if not any((has_measure, has_dimension, is_referenced, has_filter)):
+            removed_entities.append(entity_name)
+    return {
+        "shared_measures": shared,
+        "removed_measures": removed_measures,
+        "removed_entities": removed_entities,
+    }
+
+
+def delete_metric(document, metric_name):
+    """Delete one metric, its notes, and only uniquely owned dependencies."""
+    impact = metric_deletion_impact(document, metric_name)
+    updated = deepcopy(document)
+    actual_name = _mapping_name(updated.get("metrics", {}), metric_name)
+    if actual_name is None:
+        raise KeyError(metric_name)
+    updated["metrics"].pop(actual_name)
+    note_name = _mapping_name(updated.get("notes", {}), actual_name)
+    if note_name is not None:
+        updated["notes"].pop(note_name)
+    removed_measure_keys = {
+        name.casefold() for name in impact["removed_measures"]
+    }
+    updated["measures"] = [
+        measure
+        for measure in updated.get("measures", [])
+        if measure["name"].casefold() not in removed_measure_keys
+    ]
+    removed_entity_keys = {name.casefold() for name in impact["removed_entities"]}
+    updated["entities"] = {
+        name: entity
+        for name, entity in updated.get("entities", {}).items()
+        if name.casefold() not in removed_entity_keys
+    }
+    return parse_metric_definitions_yaml(render_metric_definitions_yaml(updated))
 
 
 def metric_facts(document, metric_name):

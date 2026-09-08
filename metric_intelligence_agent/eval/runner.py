@@ -12,6 +12,7 @@ def run_question(
     run_type="adhoc",
     verbose=True,
     conversation_history=None,
+    log=True,
 ):
     """
     Run one question through the graph, log it to eval.db, and return its state and ID.
@@ -23,6 +24,8 @@ def run_question(
         run_type: Either "adhoc" for manual runs or "eval" for suite runs.
         verbose: Whether to print question, reflection, answer, and cost output.
         conversation_history: Optional list of previous user questions.
+        log: Whether to write the terminal run to eval.db. Setup validation uses
+            the same execution path with this deliberately disabled.
 
     Returns:
         Tuple of the final LangGraph state dict and its logged run ID.
@@ -68,7 +71,11 @@ def run_question(
             final_state["total_output_tokens"],
         ),
     )
-    run_id = log_run(eval_conn, final_state, response_time_ms, run_type)
+    run_id = (
+        log_run(eval_conn, final_state, response_time_ms, run_type)
+        if log
+        else None
+    )
 
     if verbose:
         cost = final_state["cost_usd"]
