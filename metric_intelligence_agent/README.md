@@ -121,7 +121,7 @@ streamlit run app.py
 
 ## Hosted Test Demo
 
-Hosted URL: pending the owner's first Streamlit Community Cloud deployment.
+Live demo: [Metric Intelligence Agent](https://ai-data-engineering-urz5caec4fcse95yfc2m6s.streamlit.app)
 
 The hosted test deployment is intentionally narrower than the local app:
 
