@@ -1,0 +1,495 @@
+{
+  "daily_revenue": [
+    {
+      "order_date": "1995-01-01",
+      "revenue": 8145317.2831
+    },
+    {
+      "order_date": "1995-01-02",
+      "revenue": 6889700.4112
+    },
+    {
+      "order_date": "1995-01-03",
+      "revenue": 6386979.9742
+    },
+    {
+      "order_date": "1995-01-04",
+      "revenue": 9454867.7205
+    },
+    {
+      "order_date": "1995-01-05",
+      "revenue": 12130044.8561
+    },
+    {
+      "order_date": "1995-01-06",
+      "revenue": 7317943.2406
+    },
+    {
+      "order_date": "1995-01-07",
+      "revenue": 9698673.4665
+    },
+    {
+      "order_date": "1995-01-08",
+      "revenue": 9512137.7474
+    },
+    {
+      "order_date": "1995-01-09",
+      "revenue": 9128515.4544
+    },
+    {
+      "order_date": "1995-01-10",
+      "revenue": 8547517.3049
+    },
+    {
+      "order_date": "1995-01-11",
+      "revenue": 7374348.577
+    },
+    {
+      "order_date": "1995-01-12",
+      "revenue": 9941254.7102
+    },
+    {
+      "order_date": "1995-01-13",
+      "revenue": 8077761.2238
+    },
+    {
+      "order_date": "1995-01-14",
+      "revenue": 9081102.4671
+    },
+    {
+      "order_date": "1995-01-15",
+      "revenue": 7296557.6716
+    },
+    {
+      "order_date": "1995-01-16",
+      "revenue": 11238067.676
+    },
+    {
+      "order_date": "1995-01-17",
+      "revenue": 6923688.1129
+    },
+    {
+      "order_date": "1995-01-18",
+      "revenue": 8996106.748
+    },
+    {
+      "order_date": "1995-01-19",
+      "revenue": 6696747.5634
+    },
+    {
+      "order_date": "1995-01-20",
+      "revenue": 6708630.9167
+    },
+    {
+      "order_date": "1995-01-21",
+      "revenue": 6774238.8544
+    },
+    {
+      "order_date": "1995-01-22",
+      "revenue": 7820189.7889
+    },
+    {
+      "order_date": "1995-01-23",
+      "revenue": 10432126.0128
+    },
+    {
+      "order_date": "1995-01-24",
+      "revenue": 7826053.5851
+    },
+    {
+      "order_date": "1995-01-25",
+      "revenue": 9400059.5901
+    },
+    {
+      "order_date": "1995-01-26",
+      "revenue": 10089704.5174
+    },
+    {
+      "order_date": "1995-01-27",
+      "revenue": 7949166.6209
+    },
+    {
+      "order_date": "1995-01-28",
+      "revenue": 9229962.6385
+    },
+    {
+      "order_date": "1995-01-29",
+      "revenue": 6684027.3626
+    },
+    {
+      "order_date": "1995-01-30",
+      "revenue": 9059203.3511
+    },
+    {
+      "order_date": "1995-01-31",
+      "revenue": 5509669.2755
+    }
+  ],
+  "monthly_revenue": [
+    {
+      "order_year": 1995,
+      "order_month": 1,
+      "revenue": 260320364.7229
+    },
+    {
+      "order_year": 1995,
+      "order_month": 2,
+      "revenue": 244760449.8728
+    },
+    {
+      "order_year": 1995,
+      "order_month": 3,
+      "revenue": 263822125.5251
+    },
+    {
+      "order_year": 1995,
+      "order_month": 4,
+      "revenue": 255384350.4015
+    },
+    {
+      "order_year": 1995,
+      "order_month": 5,
+      "revenue": 268586107.163
+    },
+    {
+      "order_year": 1995,
+      "order_month": 6,
+      "revenue": 268274876.553
+    },
+    {
+      "order_year": 1995,
+      "order_month": 7,
+      "revenue": 266156443.7663
+    },
+    {
+      "order_year": 1995,
+      "order_month": 8,
+      "revenue": 257826086.4618
+    },
+    {
+      "order_year": 1995,
+      "order_month": 9,
+      "revenue": 252403697.1189
+    },
+    {
+      "order_year": 1995,
+      "order_month": 10,
+      "revenue": 265374017.8433
+    },
+    {
+      "order_year": 1995,
+      "order_month": 11,
+      "revenue": 271726963.5786
+    },
+    {
+      "order_year": 1995,
+      "order_month": 12,
+      "revenue": 269608172.7172
+    }
+  ],
+  "annual_revenue": [
+    {
+      "order_year": 1992,
+      "revenue": 3124626834.638
+    },
+    {
+      "order_year": 1993,
+      "revenue": 3063847791.3233
+    },
+    {
+      "order_year": 1994,
+      "revenue": 3150697585.3555
+    },
+    {
+      "order_year": 1995,
+      "revenue": 3144243655.7244
+    },
+    {
+      "order_year": 1996,
+      "revenue": 3103823173.4246
+    },
+    {
+      "order_year": 1997,
+      "revenue": 3088568800.4996
+    },
+    {
+      "order_year": 1998,
+      "revenue": 1859264390.4496
+    }
+  ],
+  "customer_region": [
+    {
+      "customer_region": "AFRICA",
+      "revenue": 4104593783.0043
+    },
+    {
+      "customer_region": "AMERICA",
+      "revenue": 4054774589.0832
+    },
+    {
+      "customer_region": "ASIA",
+      "revenue": 4120876801.0599
+    },
+    {
+      "customer_region": "EUROPE",
+      "revenue": 4082606839.2603
+    },
+    {
+      "customer_region": "MIDDLE EAST",
+      "revenue": 4172220219.0073
+    }
+  ],
+  "customer_nation": [
+    {
+      "customer_nation": "ALGERIA",
+      "revenue": 804269998.0683
+    },
+    {
+      "customer_nation": "ARGENTINA",
+      "revenue": 815072402.3384
+    },
+    {
+      "customer_nation": "BRAZIL",
+      "revenue": 827085312.3681
+    },
+    {
+      "customer_nation": "CANADA",
+      "revenue": 846563910.3612
+    },
+    {
+      "customer_nation": "CHINA",
+      "revenue": 848152247.2752
+    },
+    {
+      "customer_nation": "EGYPT",
+      "revenue": 842926124.58
+    },
+    {
+      "customer_nation": "ETHIOPIA",
+      "revenue": 868234410.9907
+    },
+    {
+      "customer_nation": "FRANCE",
+      "revenue": 783592881.4218
+    },
+    {
+      "customer_nation": "GERMANY",
+      "revenue": 827839243.4569
+    },
+    {
+      "customer_nation": "INDIA",
+      "revenue": 782124305.1075
+    },
+    {
+      "customer_nation": "INDONESIA",
+      "revenue": 881001943.9318
+    },
+    {
+      "customer_nation": "IRAN",
+      "revenue": 910074740.2508
+    },
+    {
+      "customer_nation": "IRAQ",
+      "revenue": 837660815.4813
+    },
+    {
+      "customer_nation": "JAPAN",
+      "revenue": 795371201.5854
+    },
+    {
+      "customer_nation": "JORDAN",
+      "revenue": 816541460.8681
+    },
+    {
+      "customer_nation": "KENYA",
+      "revenue": 753996621.3485
+    },
+    {
+      "customer_nation": "MOROCCO",
+      "revenue": 858617268.8508
+    },
+    {
+      "customer_nation": "MOZAMBIQUE",
+      "revenue": 819475483.746
+    },
+    {
+      "customer_nation": "PERU",
+      "revenue": 759979213.4539
+    },
+    {
+      "customer_nation": "ROMANIA",
+      "revenue": 844124592.6481
+    },
+    {
+      "customer_nation": "RUSSIA",
+      "revenue": 813706366.6054
+    },
+    {
+      "customer_nation": "SAUDI ARABIA",
+      "revenue": 765017077.8271
+    },
+    {
+      "customer_nation": "UNITED KINGDOM",
+      "revenue": 813343755.1281
+    },
+    {
+      "customer_nation": "UNITED STATES",
+      "revenue": 806073750.5616
+    },
+    {
+      "customer_nation": "VIETNAM",
+      "revenue": 814227103.16
+    }
+  ],
+  "supplier_region": [
+    {
+      "supplier_region": "AFRICA",
+      "revenue": 3683872152.4658
+    },
+    {
+      "supplier_region": "AMERICA",
+      "revenue": 4002653110.7102
+    },
+    {
+      "supplier_region": "ASIA",
+      "revenue": 4601164597.4997
+    },
+    {
+      "supplier_region": "EUROPE",
+      "revenue": 4165229621.8552
+    },
+    {
+      "supplier_region": "MIDDLE EAST",
+      "revenue": 4082152748.8841
+    }
+  ],
+  "total_revenue": [
+    {
+      "revenue": 20535072231.415
+    }
+  ],
+  "monthly_orders": [
+    {
+      "order_year": 1995,
+      "order_month": 1,
+      "order_volume": 1923
+    },
+    {
+      "order_year": 1995,
+      "order_month": 2,
+      "order_volume": 1762
+    },
+    {
+      "order_year": 1995,
+      "order_month": 3,
+      "order_volume": 1923
+    },
+    {
+      "order_year": 1995,
+      "order_month": 4,
+      "order_volume": 1880
+    },
+    {
+      "order_year": 1995,
+      "order_month": 5,
+      "order_volume": 1947
+    },
+    {
+      "order_year": 1995,
+      "order_month": 6,
+      "order_volume": 1959
+    },
+    {
+      "order_year": 1995,
+      "order_month": 7,
+      "order_volume": 1933
+    },
+    {
+      "order_year": 1995,
+      "order_month": 8,
+      "order_volume": 1867
+    },
+    {
+      "order_year": 1995,
+      "order_month": 9,
+      "order_volume": 1839
+    },
+    {
+      "order_year": 1995,
+      "order_month": 10,
+      "order_volume": 1960
+    },
+    {
+      "order_year": 1995,
+      "order_month": 11,
+      "order_volume": 1960
+    },
+    {
+      "order_year": 1995,
+      "order_month": 12,
+      "order_volume": 1956
+    }
+  ],
+  "monthly_aov": [
+    {
+      "order_year": 1995,
+      "order_month": 1,
+      "average_order_value": 135372.00453608946
+    },
+    {
+      "order_year": 1995,
+      "order_month": 2,
+      "average_order_value": 138910.5844908059
+    },
+    {
+      "order_year": 1995,
+      "order_month": 3,
+      "average_order_value": 137192.9929927717
+    },
+    {
+      "order_year": 1995,
+      "order_month": 4,
+      "average_order_value": 135842.73957526594
+    },
+    {
+      "order_year": 1995,
+      "order_month": 5,
+      "average_order_value": 137948.6939717514
+    },
+    {
+      "order_year": 1995,
+      "order_month": 6,
+      "average_order_value": 136944.80681623277
+    },
+    {
+      "order_year": 1995,
+      "order_month": 7,
+      "average_order_value": 137690.8658904811
+    },
+    {
+      "order_year": 1995,
+      "order_month": 8,
+      "average_order_value": 138096.45766566685
+    },
+    {
+      "order_year": 1995,
+      "order_month": 9,
+      "average_order_value": 137250.51501843394
+    },
+    {
+      "order_year": 1995,
+      "order_month": 10,
+      "average_order_value": 135394.90706290817
+    },
+    {
+      "order_year": 1995,
+      "order_month": 11,
+      "average_order_value": 138636.20590744898
+    },
+    {
+      "order_year": 1995,
+      "order_month": 12,
+      "average_order_value": 137836.48911922288
+    }
+  ]
+}

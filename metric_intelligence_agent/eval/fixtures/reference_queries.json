@@ -1,0 +1,203 @@
+{
+  "daily_revenue": {
+    "reference_sql": "SELECT o.o_orderdate AS order_date, SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue FROM lineitem l JOIN orders o ON l.l_orderkey = o.o_orderkey WHERE o.o_orderstatus <> 'C' AND o.o_orderdate >= DATE '1995-01-01' AND o.o_orderdate < DATE '1995-02-01' GROUP BY 1 ORDER BY 1;",
+    "aggregate_sql": "SELECT order_date, SUM(revenue) AS revenue FROM agg_daily_sales WHERE order_date >= DATE '1995-01-01' AND order_date < DATE '1995-02-01' GROUP BY 1 ORDER BY 1;",
+    "canonical_contract": {
+      "definition_file": "context/metric_definitions.md",
+      "sections": [
+        "Revenue"
+      ],
+      "formula": "SUM(l_extendedprice * (1 - l_discount))",
+      "exclusions": [
+        "o_orderstatus <> 'C'"
+      ],
+      "grain": [
+        "order_date"
+      ],
+      "intended_layer": "aggregated",
+      "time_basis": "orders.o_orderdate",
+      "time_filter": "1995-01-01 <= order_date < 1995-02-01",
+      "layer_authority": "context/table_catalog.md",
+      "note": "Reference SQL uses base facts independently; intended layer applies to the evaluated agent answer."
+    }
+  },
+  "monthly_revenue": {
+    "reference_sql": "SELECT YEAR(o.o_orderdate) AS order_year, MONTH(o.o_orderdate) AS order_month, SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue FROM lineitem l JOIN orders o ON l.l_orderkey = o.o_orderkey WHERE o.o_orderstatus <> 'C' AND o.o_orderdate >= DATE '1995-01-01' AND o.o_orderdate < DATE '1996-01-01' GROUP BY 1,2 ORDER BY 1,2;",
+    "aggregate_sql": "SELECT order_year, order_month, SUM(revenue) AS revenue FROM agg_monthly_sales WHERE order_year=1995 GROUP BY 1,2 ORDER BY 1,2;",
+    "canonical_contract": {
+      "definition_file": "context/metric_definitions.md",
+      "sections": [
+        "Revenue"
+      ],
+      "formula": "SUM(l_extendedprice * (1 - l_discount))",
+      "exclusions": [
+        "o_orderstatus <> 'C'"
+      ],
+      "grain": [
+        "order_year",
+        "order_month"
+      ],
+      "intended_layer": "aggregated",
+      "time_basis": "orders.o_orderdate",
+      "time_filter": "1995-01-01 <= order_date < 1996-01-01",
+      "layer_authority": "context/table_catalog.md",
+      "note": "Reference SQL uses base facts independently; intended layer applies to the evaluated agent answer."
+    }
+  },
+  "annual_revenue": {
+    "reference_sql": "SELECT YEAR(o.o_orderdate) AS order_year, SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue FROM lineitem l JOIN orders o ON l.l_orderkey = o.o_orderkey WHERE o.o_orderstatus <> 'C' GROUP BY 1 ORDER BY 1;",
+    "aggregate_sql": "SELECT order_year, SUM(revenue) AS revenue FROM agg_monthly_sales GROUP BY 1 ORDER BY 1;",
+    "canonical_contract": {
+      "definition_file": "context/metric_definitions.md",
+      "sections": [
+        "Revenue"
+      ],
+      "formula": "SUM(l_extendedprice * (1 - l_discount))",
+      "exclusions": [
+        "o_orderstatus <> 'C'"
+      ],
+      "grain": [
+        "order_year"
+      ],
+      "intended_layer": "aggregated",
+      "time_basis": "orders.o_orderdate",
+      "time_filter": "all available dates",
+      "layer_authority": "context/table_catalog.md",
+      "note": "Reference SQL uses base facts independently; intended layer applies to the evaluated agent answer."
+    }
+  },
+  "customer_region": {
+    "reference_sql": "SELECT r.r_name AS customer_region, SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue FROM lineitem l JOIN orders o ON l.l_orderkey = o.o_orderkey JOIN customer c ON o.o_custkey = c.c_custkey JOIN nation n ON c.c_nationkey = n.n_nationkey JOIN region r ON n.n_regionkey = r.r_regionkey WHERE o.o_orderstatus <> 'C' GROUP BY 1 ORDER BY 1;",
+    "aggregate_sql": "SELECT customer_region, SUM(revenue) AS revenue FROM agg_monthly_sales GROUP BY 1 ORDER BY 1;",
+    "canonical_contract": {
+      "definition_file": "context/metric_definitions.md",
+      "sections": [
+        "Revenue",
+        "Revenue by Customer Region"
+      ],
+      "formula": "SUM(l_extendedprice * (1 - l_discount))",
+      "exclusions": [
+        "o_orderstatus <> 'C'"
+      ],
+      "grain": [
+        "customer_region"
+      ],
+      "intended_layer": "aggregated",
+      "time_basis": "orders.o_orderdate",
+      "time_filter": "all available dates",
+      "layer_authority": "context/table_catalog.md",
+      "note": "Reference SQL uses base facts independently; intended layer applies to the evaluated agent answer."
+    }
+  },
+  "customer_nation": {
+    "reference_sql": "SELECT n.n_name AS customer_nation, SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue FROM lineitem l JOIN orders o ON l.l_orderkey = o.o_orderkey JOIN customer c ON o.o_custkey = c.c_custkey JOIN nation n ON c.c_nationkey = n.n_nationkey JOIN region r ON n.n_regionkey = r.r_regionkey WHERE o.o_orderstatus <> 'C' GROUP BY 1 ORDER BY 1;",
+    "aggregate_sql": "SELECT customer_nation, SUM(revenue) AS revenue FROM agg_monthly_sales GROUP BY 1 ORDER BY 1;",
+    "canonical_contract": {
+      "definition_file": "context/metric_definitions.md",
+      "sections": [
+        "Revenue"
+      ],
+      "formula": "SUM(l_extendedprice * (1 - l_discount))",
+      "exclusions": [
+        "o_orderstatus <> 'C'"
+      ],
+      "grain": [
+        "customer_nation"
+      ],
+      "intended_layer": "aggregated",
+      "time_basis": "orders.o_orderdate",
+      "time_filter": "all available dates",
+      "layer_authority": "context/table_catalog.md",
+      "note": "Reference SQL uses base facts independently; intended layer applies to the evaluated agent answer."
+    }
+  },
+  "supplier_region": {
+    "reference_sql": "SELECT r.r_name AS supplier_region, SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue FROM lineitem l JOIN orders o ON l.l_orderkey = o.o_orderkey JOIN supplier s ON l.l_suppkey = s.s_suppkey JOIN nation n ON s.s_nationkey = n.n_nationkey JOIN region r ON n.n_regionkey = r.r_regionkey WHERE o.o_orderstatus <> 'C' GROUP BY 1 ORDER BY 1;",
+    "aggregate_sql": null,
+    "canonical_contract": {
+      "definition_file": "context/metric_definitions.md",
+      "sections": [
+        "Revenue",
+        "Revenue by Supplier Region"
+      ],
+      "formula": "SUM(l_extendedprice * (1 - l_discount))",
+      "exclusions": [
+        "o_orderstatus <> 'C'"
+      ],
+      "grain": [
+        "supplier_region"
+      ],
+      "intended_layer": "fact",
+      "time_basis": "orders.o_orderdate",
+      "time_filter": "all available dates",
+      "layer_authority": "context/table_catalog.md",
+      "note": "Reference SQL uses base facts independently; intended layer applies to the evaluated agent answer."
+    }
+  },
+  "total_revenue": {
+    "reference_sql": "SELECT SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue FROM lineitem l JOIN orders o ON l.l_orderkey = o.o_orderkey WHERE o.o_orderstatus <> 'C';",
+    "aggregate_sql": "SELECT SUM(revenue) AS revenue FROM agg_monthly_sales;",
+    "canonical_contract": {
+      "definition_file": "context/metric_definitions.md",
+      "sections": [
+        "Revenue"
+      ],
+      "formula": "SUM(l_extendedprice * (1 - l_discount))",
+      "exclusions": [
+        "o_orderstatus <> 'C'"
+      ],
+      "grain": [],
+      "intended_layer": "aggregated",
+      "time_basis": "orders.o_orderdate",
+      "time_filter": "all available dates",
+      "layer_authority": "context/table_catalog.md",
+      "note": "Reference SQL uses base facts independently; intended layer applies to the evaluated agent answer."
+    }
+  },
+  "monthly_orders": {
+    "reference_sql": "SELECT YEAR(o.o_orderdate) AS order_year, MONTH(o.o_orderdate) AS order_month, COUNT(DISTINCT o.o_orderkey) AS order_volume FROM orders o WHERE o.o_orderstatus <> 'C' AND o.o_orderdate >= DATE '1995-01-01' AND o.o_orderdate < DATE '1996-01-01' GROUP BY 1,2 ORDER BY 1,2;",
+    "aggregate_sql": "SELECT order_year, order_month, SUM(order_volume) AS order_volume FROM agg_monthly_sales WHERE order_year=1995 GROUP BY 1,2 ORDER BY 1,2;",
+    "canonical_contract": {
+      "definition_file": "context/metric_definitions.md",
+      "sections": [
+        "Order Volume"
+      ],
+      "formula": "COUNT(DISTINCT o_orderkey)",
+      "exclusions": [
+        "o_orderstatus <> 'C'"
+      ],
+      "grain": [
+        "order_year",
+        "order_month"
+      ],
+      "intended_layer": "aggregated",
+      "time_basis": "orders.o_orderdate",
+      "time_filter": "1995-01-01 <= order_date < 1996-01-01",
+      "layer_authority": "context/table_catalog.md",
+      "note": "Reference SQL uses base facts independently; intended layer applies to the evaluated agent answer."
+    }
+  },
+  "monthly_aov": {
+    "reference_sql": "SELECT YEAR(o.o_orderdate) AS order_year, MONTH(o.o_orderdate) AS order_month, SUM(l.l_extendedprice * (1 - l.l_discount)) / NULLIF(COUNT(DISTINCT o.o_orderkey), 0) AS average_order_value FROM lineitem l JOIN orders o ON l.l_orderkey = o.o_orderkey WHERE o.o_orderstatus <> 'C' AND o.o_orderdate >= DATE '1995-01-01' AND o.o_orderdate < DATE '1996-01-01' GROUP BY 1,2 ORDER BY 1,2;",
+    "aggregate_sql": "SELECT order_year, order_month, SUM(revenue) / NULLIF(SUM(order_volume),0) AS average_order_value FROM agg_monthly_sales WHERE order_year=1995 GROUP BY 1,2 ORDER BY 1,2;",
+    "canonical_contract": {
+      "definition_file": "context/metric_definitions.md",
+      "sections": [
+        "Average Order Value"
+      ],
+      "formula": "SUM(l_extendedprice * (1 - l_discount)) / NULLIF(COUNT(DISTINCT o_orderkey), 0)",
+      "exclusions": [
+        "o_orderstatus <> 'C'"
+      ],
+      "grain": [
+        "order_year",
+        "order_month"
+      ],
+      "intended_layer": "aggregated",
+      "time_basis": "orders.o_orderdate",
+      "time_filter": "1995-01-01 <= order_date < 1996-01-01",
+      "layer_authority": "context/table_catalog.md",
+      "note": "Reference SQL uses base facts independently; intended layer applies to the evaluated agent answer."
+    }
+  }
+}
