@@ -11,6 +11,8 @@ from agent import (
     run_sql,
     validate_result,
 )
+from layer_reporting import detect_layer_used
+from model_config import resolve_model
 from utils import compute_cost
 
 
@@ -29,9 +31,17 @@ class AgentState(TypedDict):
     total_input_tokens: int
     total_output_tokens: int
     cost_usd: float
+    model: str
+    layer_used: Optional[str]
+    attempt_trace: list
+    pending_usage: dict
+    non_attempt_usage: dict
 
 
-def build_graph(conn, context, openai_client=None):
+def build_graph(conn, context, openai_client=None, table_layers=None):
+    """Capture runtime configuration once for consistent calls and provenance."""
+    model = resolve_model()
+    table_layers = dict(table_layers or {})
     if MAX_ATTEMPTS < 1:
         raise ValueError("MAX_REFLECTION_ATTEMPTS must allow at least one SQL execution")
 
@@ -42,11 +52,20 @@ def build_graph(conn, context, openai_client=None):
             state["question"],
             state["conversation_history"],
             openai_client=openai_client,
+            model=model,
         )
         total_input_tokens = state["total_input_tokens"] + input_tokens
         total_output_tokens = state["total_output_tokens"] + output_tokens
+        provenance = {
+            "model": model,
+            "attempt_trace": [],
+            "pending_usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+            "non_attempt_usage": {"input_tokens": 0, "output_tokens": 0},
+        }
         if sql.startswith("OUT_OF_RANGE:"):
+            provenance["non_attempt_usage"] = provenance["pending_usage"]
             return {
+                **provenance,
                 "sql": sql,
                 "out_of_range": True,
                 "attempt": 0,
@@ -55,6 +74,7 @@ def build_graph(conn, context, openai_client=None):
             }
 
         return {
+            **provenance,
             "sql": sql,
             "out_of_range": False,
             "attempt": 1,
@@ -65,7 +85,21 @@ def build_graph(conn, context, openai_client=None):
     def run_sql_node(state):
         """Run the current SQL against DuckDB."""
         result = run_sql(conn, state["sql"])
+        entry = {
+            "attempt": state["attempt"],
+            "stage": "initial" if state["attempt"] == 1 else "correction",
+            "sql": result["sql"],
+            "execution_success": result["success"],
+            "execution_error": result["error"] or None,
+            "row_count": len(result["data"]) if result["success"] else None,
+            "semantic_review_ran": False,
+            "validation_pass": None,
+            "validation_reason": None,
+            "generation_usage": state["pending_usage"],
+            "validation_usage": {"input_tokens": 0, "output_tokens": 0},
+        }
         return {
+            "attempt_trace": [*state["attempt_trace"], entry],
             "success": result["success"],
             "data": result["data"],
             "error": result["error"],
@@ -80,8 +114,13 @@ def build_graph(conn, context, openai_client=None):
             state["sql"],
             state["error"],
             openai_client=openai_client,
+            model=model,
         )
         update = {
+            "pending_usage": {
+                "input_tokens": result["input_tokens"],
+                "output_tokens": result["output_tokens"],
+            },
             "sql": result["sql"],
             "success": False,
             "data": None,
@@ -106,9 +145,21 @@ def build_graph(conn, context, openai_client=None):
             state["data"],
             context,
             openai_client=openai_client,
+            model=model,
         )
         reason = validation["reason"]
+        entry = {
+            **state["attempt_trace"][-1],
+            "semantic_review_ran": validation["semantic_review_ran"],
+            "validation_pass": validation["valid"],
+            "validation_reason": reason,
+            "validation_usage": {
+                "input_tokens": validation["input_tokens"],
+                "output_tokens": validation["output_tokens"],
+            },
+        }
         result = {
+            "attempt_trace": [*state["attempt_trace"][:-1], entry],
             "valid": validation["valid"],
             "validation_reason": reason,
             "total_input_tokens": (
@@ -130,20 +181,28 @@ def build_graph(conn, context, openai_client=None):
             state["data"],
             context,
             openai_client=openai_client,
+            model=model,
         )
         total_input_tokens = state["total_input_tokens"] + input_tokens
         total_output_tokens = state["total_output_tokens"] + output_tokens
         return {
             "explanation": explanation,
+            "non_attempt_usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
         }
 
     def finalize_node(state):
         """Attach cost once, after all completed model calls on any terminal path."""
-        return {"cost_usd": compute_cost(
-            state["total_input_tokens"], state["total_output_tokens"]
-        )}
+        return {
+            "layer_used": (
+                None if state["out_of_range"]
+                else detect_layer_used(state["sql"], table_layers)
+            ),
+            "cost_usd": compute_cost(
+                state["total_input_tokens"], state["total_output_tokens"]
+            ),
+        }
 
     def route_after_generate(state):
         """Route generated SQL to execution or end for out-of-range questions."""

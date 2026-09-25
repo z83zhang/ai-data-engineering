@@ -44,7 +44,7 @@ If either fails, agent rewrites SQL automatically.
 
 ## Evaluation Results
 
-The live evaluation suite contains 13 cases covering four failure modes: wrong data layer, wrong join path, wrong metric formula, and out-of-range handling. See [PROJECT_STATE.md](PROJECT_STATE.md) for the current verification status. Evaluation runs are logged to `eval.db` with token counts, latency, cost, and layer detection for ongoing monitoring.
+The live evaluation suite contains 13 cases covering four failure modes: wrong data layer, wrong join path, wrong metric formula, and out-of-range handling. See [PROJECT_STATE.md](PROJECT_STATE.md) for the current verification status. Evaluation runs are logged to `eval.db` with token counts, latency, cost, and source-aware layer reporting. Query graphs resolve `OPENAI_MODEL` at construction (default `gpt-4o`) and use it for generation, correction, validation, and explanation. `query_log.model` records that resolved name; `query_log.attempt_trace` stores a JSON list of executed SQL attempts and their outcomes/token usage. Opening an older store adds these two nullable columns idempotently and preserves historical rows. Existing cost estimates still use the fixed rates in `utils.py`; model overrides do not select a different pricing schedule. See [Batch 3 verification](eval/BATCH3_VERIFICATION.md) for trace fields and environment details.
 
 ## Real Output Examples
 

@@ -1,9 +1,12 @@
-import re
+import json
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
 import duckdb
+
+# Preserve the existing import location for callers supplying source metadata.
+from layer_reporting import detect_layer_used
 
 
 def setup_eval_db(db_path=None):
@@ -31,23 +34,9 @@ def setup_eval_db(db_path=None):
             human_notes TEXT
         )
     """)
+    conn.execute("ALTER TABLE query_log ADD COLUMN IF NOT EXISTS model VARCHAR")
+    conn.execute("ALTER TABLE query_log ADD COLUMN IF NOT EXISTS attempt_trace TEXT")
     return conn
-
-
-def detect_layer_used(sql):
-    """Detect the highest warehouse layer referenced by a SQL string."""
-    if not sql:
-        return None
-
-    normalized = sql.lower()
-    if re.search(r"\bagg_daily_sales\b|\bagg_monthly_sales\b", normalized):
-        return "aggregated"
-    if re.search(r"\borders\b|\blineitem\b", normalized):
-        return "fact"
-    if re.search(r"\bcustomer\b|\bsupplier\b|\bnation\b|\bregion\b", normalized):
-        return "dimension"
-
-    return "unknown"
 
 
 def log_run(conn, final_state, response_time_ms, run_type="adhoc"):
@@ -79,7 +68,7 @@ def log_run(conn, final_state, response_time_ms, run_type="adhoc"):
         sql_final = final_state["sql"]
         technical_pass = final_state["success"]
         semantic_pass = final_state["valid"]
-        layer_used = detect_layer_used(final_state["sql"])
+        layer_used = final_state.get("layer_used", "unknown")
         error_messages = final_state["error"] or None
 
     total_input_tokens = final_state["total_input_tokens"]
@@ -106,9 +95,11 @@ def log_run(conn, final_state, response_time_ms, run_type="adhoc"):
             cost_usd,
             run_type,
             human_rating,
-            human_notes
+            human_notes,
+            model,
+            attempt_trace
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             run_id,
@@ -128,6 +119,8 @@ def log_run(conn, final_state, response_time_ms, run_type="adhoc"):
             run_type,
             None,
             None,
+            final_state.get("model"),
+            json.dumps(final_state["attempt_trace"]) if "attempt_trace" in final_state else None,
         ],
     )
     return run_id

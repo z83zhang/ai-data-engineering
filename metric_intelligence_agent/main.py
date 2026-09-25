@@ -2,12 +2,13 @@ from agent import get_date_range, load_context, setup_database
 from eval.logger import setup_eval_db
 from eval.runner import run_question
 from graph import build_graph
+from layer_reporting import load_table_layers
 
 
 conn = setup_database()
 min_date, max_date = get_date_range(conn)
 context = load_context(min_date, max_date)
-graph = build_graph(conn, context)
+graph = build_graph(conn, context, table_layers=load_table_layers(demo=True))
 eval_conn = setup_eval_db()
 
 try:

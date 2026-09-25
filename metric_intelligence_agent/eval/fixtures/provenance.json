@@ -10,7 +10,7 @@
   "source_sha256": {
     "eval/fixtures/reference_queries.json": "d91414a1ceb05c4ebfd4127ca4be11b24f5620ed857024aaaa14035ab3b6c62a",
     "eval/test_suite.py": "cbb12d43480799504b4d6aebdbbbf3254a431a3be75b712f4ec1e7d7dd8e367b",
-    "agent.py": "f8d29936bdb1d2a86d05c81872ced31fb51eec54c46e1c27c86c75597fdf42ac",
+    "agent.py": "54cb3966c8425cdca231bf4e6e60113d2fc466b991b90cfef4ba8d15da385f5f",
     "context/metric_definitions.md": "456e95cfc356da3ca8019184650e1b0dc490d99970f2091ebcc031901468db51",
     "context/schema.sql": "04560501d0fc5ddba70e4d520ef165185308f4cd9b9b0d5bcf6a58ca0f9044ac",
     "context/table_catalog.md": "852a6d0ca25b4eed088c8a9954d3dabb23997c0ee62c89017462a56b63ca3448"
@@ -37,5 +37,9 @@
       "explain_result",
       "_build_sql_system_message"
     ]
+  },
+  "batch3_runtime_source_review": {
+    "baseline_revision": "ea6daf71198777b7d24acaed12555c2deea76ba0",
+    "reason": "Model arguments and semantic-review observability only in agent.py; demo setup, context, prompts, references and frozen expected results unchanged."
   }
 }

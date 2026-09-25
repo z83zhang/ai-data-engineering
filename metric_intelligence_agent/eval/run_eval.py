@@ -18,6 +18,7 @@ from eval.scoring import load_golden, score_result, validate_contract
 from eval.runner import run_question
 from eval.test_suite import TEST_CASES
 from graph import build_graph
+from layer_reporting import load_table_layers
 
 
 def run_eval():
@@ -29,7 +30,7 @@ def run_eval():
     conn = setup_database()
     min_date, max_date = get_date_range(conn)
     context = load_context(min_date, max_date)
-    graph = build_graph(conn, context)
+    graph = build_graph(conn, context, table_layers=load_table_layers(demo=True))
     eval_conn = setup_eval_db()
 
     scores = []
@@ -55,7 +56,7 @@ def run_eval():
                 f"[result_match={score['result_match']}, "
                 f"terminal_verified={score['terminal_verified']}, "
                 f"layer_match={score['layer_match']}, "
-                f"attempt={final_state['attempt']}]"
+                f"attempt={final_state['attempt']}, model={final_state['model']}]"
             )
             time.sleep(10)
 

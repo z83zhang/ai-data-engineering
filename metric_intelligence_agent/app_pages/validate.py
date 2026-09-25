@@ -77,7 +77,7 @@ def _run_batch(
     executor=None,
     status_events=None,
 ):
-    from eval.logger import detect_layer_used
+    from layer_reporting import load_table_layers
 
     if executor is None:
         from agent import load_context
@@ -88,7 +88,10 @@ def _run_batch(
         if conn is None:
             st.error("Reconnect the custom source before running validation.")
             return
-        graph = build_graph(conn, load_context(context_dir=context_dir))
+        graph = build_graph(
+            conn, load_context(context_dir=context_dir),
+            table_layers=load_table_layers(context_dir),
+        )
 
         def executor(question):
             state, _ = run_question(
@@ -132,7 +135,7 @@ def _run_batch(
         details[question["id"]] = state
         results[question["id"]] = {
             "system_success": system_success,
-            "detected_layer": detect_layer_used(state.get("sql", "")) or "unknown",
+            "detected_layer": state.get("layer_used") or "unknown",
             "attempt": state.get("attempt", 0),
             "suggestion": suggestion,
             "suggestion_reason": reason,

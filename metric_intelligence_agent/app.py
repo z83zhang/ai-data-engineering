@@ -105,6 +105,7 @@ elif st.session_state.get("_graph_api_key_fingerprint") != api_key_fingerprint:
         st.session_state.conn,
         st.session_state.context,
         openai_client=openai_client,
+        table_layers=st.session_state.get("table_layers", {}),
     )
     st.session_state._graph_api_key_fingerprint = api_key_fingerprint
 

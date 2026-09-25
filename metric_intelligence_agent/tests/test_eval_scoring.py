@@ -339,7 +339,7 @@ def test_live_runner_continues_after_malformed_result(monkeypatch, capsys):
     import eval.run_eval as runner
     case = ANSWERABLE[7]
     bad = state(case, pd.DataFrame({"revenue": ["not numeric"]}))
-    states = iter([bad, state(case)])
+    states = iter([{**bad, "model": "gpt-4o"}, {**state(case), "model": "gpt-4o"}])
     class Connection:
         def close(self): pass
     monkeypatch.setattr(runner, "TEST_CASES", [case, case])
@@ -347,7 +347,7 @@ def test_live_runner_continues_after_malformed_result(monkeypatch, capsys):
     monkeypatch.setattr(runner, "setup_eval_db", Connection)
     monkeypatch.setattr(runner, "get_date_range", lambda conn: (None, None))
     monkeypatch.setattr(runner, "load_context", lambda *args: "")
-    monkeypatch.setattr(runner, "build_graph", lambda *args: None)
+    monkeypatch.setattr(runner, "build_graph", lambda *args, **kwargs: None)
     monkeypatch.setattr(runner, "run_question", lambda *args, **kwargs: (next(states), "id"))
     monkeypatch.setattr(runner.time, "sleep", lambda seconds: None)
     runner.run_eval()

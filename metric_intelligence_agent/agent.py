@@ -5,6 +5,7 @@ from pathlib import Path
 import duckdb
 from openai import OpenAI
 
+from model_config import resolve_model
 from metric_import import load_metric_definitions_yaml, render_metric_definitions_yaml
 
 
@@ -238,7 +239,7 @@ def run_sql(conn, sql):
         }
 
 
-def reflect_sql(context, question, sql, error, openai_client=None):
+def reflect_sql(context, question, sql, error, openai_client=None, model=None):
     """Return corrected SQL and model usage without executing it.
 
     The graph owns the execution budget, attempt number, and execution itself.
@@ -252,7 +253,7 @@ def reflect_sql(context, question, sql, error, openai_client=None):
         "Rewrite the SQL to fix the problem."
     )
     response = (openai_client or get_openai_client()).chat.completions.create(
-        model="gpt-4o",
+        model=model or resolve_model(),
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
@@ -289,7 +290,7 @@ def parse_validation_response(content):
     return invalid
 
 
-def validate_result(question, sql, df, context, openai_client=None):
+def validate_result(question, sql, df, context, openai_client=None, model=None):
     """
     Validate a query result with Python checks, then one LLM semantic check.
 
@@ -300,22 +301,13 @@ def validate_result(question, sql, df, context, openai_client=None):
         context: Structured context string from load_context().
 
     Returns:
-        {
-            "valid": True,
-            "reason": "",
-            "input_tokens": int,
-            "output_tokens": int,
-        } when valid, otherwise
-        {
-            "valid": False,
-            "reason": reason,
-            "input_tokens": int,
-            "output_tokens": int,
-        }.
+        Validation status/reason, token usage, and whether LLM review ran.
+        Deterministic rejection returns zero tokens and semantic_review_ran=False.
     """
     if len(df) == 0:
         return {
             "valid": False,
+            "semantic_review_ran": False,
             "reason": (
                 "Query returned 0 rows. The SQL may have an overly restrictive "
                 "filter or incorrect join condition."
@@ -329,6 +321,7 @@ def validate_result(question, sql, df, context, openai_client=None):
         if numeric_df[column].isnull().all():
             return {
                 "valid": False,
+                "semantic_review_ran": False,
                 "reason": f"Numeric column '{column}' contains only null values.",
                 "input_tokens": 0,
                 "output_tokens": 0,
@@ -372,7 +365,7 @@ def validate_result(question, sql, df, context, openai_client=None):
         "REASON: explanation of what looks wrong"
     )
     response = (openai_client or get_openai_client()).chat.completions.create(
-        model="gpt-4o",
+        model=model or resolve_model(),
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
@@ -384,6 +377,7 @@ def validate_result(question, sql, df, context, openai_client=None):
     valid, reason = parse_validation_response(response.choices[0].message.content)
     return {
         "valid": valid,
+        "semantic_review_ran": True,
         "reason": reason,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -395,6 +389,7 @@ def generate_sql(
     question,
     conversation_history=None,
     openai_client=None,
+    model=None,
 ):
     """
     Generate a DuckDB SQL query from warehouse context and a user question.
@@ -419,7 +414,7 @@ def generate_sql(
         )
 
     response = (openai_client or get_openai_client()).chat.completions.create(
-        model="gpt-4o",
+        model=model or resolve_model(),
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
@@ -432,7 +427,7 @@ def generate_sql(
     return sql, response.usage.prompt_tokens, response.usage.completion_tokens
 
 
-def explain_result(question, sql, df, context, openai_client=None):
+def explain_result(question, sql, df, context, openai_client=None, model=None):
     """
     Explain a verified query result in plain English for a non-technical user.
 
@@ -469,7 +464,7 @@ def explain_result(question, sql, df, context, openai_client=None):
         "7. Does not mention SQL, DuckDB, DataFrames, or technical details."
     )
     response = (openai_client or get_openai_client()).chat.completions.create(
-        model="gpt-4o",
+        model=model or resolve_model(),
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},

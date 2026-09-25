@@ -3,7 +3,7 @@ import re
 import streamlit as st
 from openai import AuthenticationError
 
-from eval.logger import detect_layer_used, update_human_rating
+from eval.logger import update_human_rating
 from eval.runner import run_question
 
 
@@ -77,7 +77,7 @@ def _show_result(msg, is_latest, hosted_mode=False):
         st.success(
             f"✅ Answer verified — {final_state['attempt']} attempt(s)"
         )
-        layer = detect_layer_used(final_state["sql"]) or "unknown"
+        layer = final_state.get("layer_used") or "unknown"
         if msg.get("from_cache"):
             st.caption(f"⚡ Cached | Layer: {layer} | Cost: \\$0.00")
         else:

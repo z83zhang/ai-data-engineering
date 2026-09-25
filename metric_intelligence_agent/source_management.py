@@ -5,6 +5,7 @@ import streamlit as st
 from agent import load_context, setup_database
 from eval.logger import setup_eval_db
 from graph import build_graph
+from layer_reporting import load_table_layers
 
 
 @st.cache_resource
@@ -28,10 +29,12 @@ def initialize_session(
 
     st.session_state.conn = conn
     st.session_state.context = context
+    st.session_state.table_layers = load_table_layers(context_dir, demo=data_source == "demo")
     st.session_state.graph = build_graph(
         conn,
         context,
         openai_client=openai_client,
+        table_layers=st.session_state.table_layers,
     )
     if "eval_conn" not in st.session_state:
         st.session_state.eval_conn = setup_eval_db(eval_db_path)
