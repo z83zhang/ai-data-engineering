@@ -1,0 +1,29 @@
+{
+  "repository_revision": "edfb813637821c868afafb4a0044927aff1a0c5a",
+  "generated_at_utc": "2026-09-24T13:29:14.290332+00:00",
+  "duckdb_version": "1.5.4",
+  "tpch_extension": "v1.5.4",
+  "dbgen": {
+    "sf": 0.1,
+    "other_parameters": "DuckDB defaults"
+  },
+  "source_sha256": {
+    "eval/fixtures/reference_queries.json": "d91414a1ceb05c4ebfd4127ca4be11b24f5620ed857024aaaa14035ab3b6c62a",
+    "eval/test_suite.py": "cbb12d43480799504b4d6aebdbbbf3254a431a3be75b712f4ec1e7d7dd8e367b",
+    "agent.py": "b7d680b508c7784e088a4d84a973216f832e727ce9bec49f3c758db2712b3020",
+    "context/metric_definitions.md": "456e95cfc356da3ca8019184650e1b0dc490d99970f2091ebcc031901468db51",
+    "context/schema.sql": "04560501d0fc5ddba70e4d520ef165185308f4cd9b9b0d5bcf6a58ca0f9044ac",
+    "context/table_catalog.md": "852a6d0ca25b4eed088c8a9954d3dabb23997c0ee62c89017462a56b63ca3448"
+  },
+  "order_status_counts": {
+    "F": 72884,
+    "O": 73267,
+    "P": 3849
+  },
+  "reference_cases_checked": 10,
+  "distinct_aggregate_results_checked": 8,
+  "review": "Implementation checked against bundled metric definitions; owner review pending. Reference SQL authored independently of runtime SQL generation.",
+  "tolerances": "Counts exact. Revenue/AOV: absolute tolerance 0.005, relative tolerance 0; accepts rounding to two decimals without a magnitude-dependent allowance.",
+  "limitations": "No C orders: results cannot test cancellation-exclusion enforcement. Supplier SQL includes the global exclusion despite its omission in the bundled supplier example. No supplier aggregate exists.",
+  "fixture_sha256": "6bc496542a91e51a58cc36ef00f1619646829ceee7be29651f3bca11bd74b08c"
+}
