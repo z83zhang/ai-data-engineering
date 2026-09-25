@@ -28,9 +28,13 @@ class AgentState(TypedDict):
     explanation: str
     total_input_tokens: int
     total_output_tokens: int
+    cost_usd: float
 
 
 def build_graph(conn, context, openai_client=None):
+    if MAX_ATTEMPTS < 1:
+        raise ValueError("MAX_REFLECTION_ATTEMPTS must allow at least one SQL execution")
+
     def generate_sql_node(state):
         """Generate SQL or stop early for out-of-range questions."""
         sql, input_tokens, output_tokens = generate_sql(
@@ -45,12 +49,9 @@ def build_graph(conn, context, openai_client=None):
             return {
                 "sql": sql,
                 "out_of_range": True,
+                "attempt": 0,
                 "total_input_tokens": total_input_tokens,
                 "total_output_tokens": total_output_tokens,
-                "cost_usd": compute_cost(
-                    total_input_tokens,
-                    total_output_tokens,
-                ),
             }
 
         return {
@@ -74,20 +75,20 @@ def build_graph(conn, context, openai_client=None):
     def reflect_sql_node(state):
         """Rewrite failed SQL using the latest error context."""
         result = reflect_sql(
-            conn,
             context,
             state["question"],
             state["sql"],
             state["error"],
-            state["attempt"],
             openai_client=openai_client,
         )
         update = {
             "sql": result["sql"],
-            "success": result["success"],
-            "data": result["data"],
-            "error": result["message"] or result["error"],
-            "attempt": result["attempts"],
+            "success": False,
+            "data": None,
+            "valid": False,
+            "validation_reason": "",
+            "error": "",
+            "attempt": state["attempt"] + 1,
             "total_input_tokens": (
                 state["total_input_tokens"] + result["input_tokens"]
             ),
@@ -95,11 +96,6 @@ def build_graph(conn, context, openai_client=None):
                 state["total_output_tokens"] + result["output_tokens"]
             ),
         }
-        if result["attempts"] >= MAX_ATTEMPTS:
-            update["cost_usd"] = compute_cost(
-                state["total_input_tokens"],
-                state["total_output_tokens"],
-            )
         return update
 
     def validate_result_node(state):
@@ -141,11 +137,13 @@ def build_graph(conn, context, openai_client=None):
             "explanation": explanation,
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
-            "cost_usd": compute_cost(
-                total_input_tokens,
-                total_output_tokens,
-            ),
         }
+
+    def finalize_node(state):
+        """Attach cost once, after all completed model calls on any terminal path."""
+        return {"cost_usd": compute_cost(
+            state["total_input_tokens"], state["total_output_tokens"]
+        )}
 
     def route_after_generate(state):
         """Route generated SQL to execution or end for out-of-range questions."""
@@ -175,13 +173,14 @@ def build_graph(conn, context, openai_client=None):
     workflow.add_node("reflect", reflect_sql_node)
     workflow.add_node("validate", validate_result_node)
     workflow.add_node("explain", explain_result_node)
+    workflow.add_node("finalize", finalize_node)
 
     workflow.set_entry_point("generate_sql")
     workflow.add_conditional_edges(
         "generate_sql",
         route_after_generate,
         {
-            "out_of_range": END,
+            "out_of_range": "finalize",
             "run_sql": "run_sql",
         },
     )
@@ -190,7 +189,7 @@ def build_graph(conn, context, openai_client=None):
         route_after_run,
         {
             "reflect": "reflect",
-            "failure": END,
+            "failure": "finalize",
             "validate": "validate",
         },
     )
@@ -199,11 +198,12 @@ def build_graph(conn, context, openai_client=None):
         route_after_validate,
         {
             "reflect": "reflect",
-            "failure": END,
+            "failure": "finalize",
             "explain": "explain",
         },
     )
     workflow.add_edge("reflect", "run_sql")
-    workflow.add_edge("explain", END)
+    workflow.add_edge("explain", "finalize")
+    workflow.add_edge("finalize", END)
 
     return workflow.compile()

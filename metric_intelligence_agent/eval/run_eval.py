@@ -51,7 +51,11 @@ def run_eval():
             status = "PASS" if score["passed"] else "FAIL"
             print(
                 f"[{status}] {index:02d}/{len(TEST_CASES)} "
-                f"{test_case['failure_mode']}: {test_case['question']}"
+                f"{test_case['failure_mode']}: {test_case['question']} "
+                f"[result_match={score['result_match']}, "
+                f"terminal_verified={score['terminal_verified']}, "
+                f"layer_match={score['layer_match']}, "
+                f"attempt={final_state['attempt']}]"
             )
             time.sleep(10)
 

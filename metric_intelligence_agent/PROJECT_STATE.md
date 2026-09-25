@@ -38,9 +38,7 @@ Recent repository activity completed custom-source validation and activation and
 - Cache keys exclude conversation context. A follow-up can therefore reuse an answer generated under different conversational meaning.
 - Cache hits reuse the original run ID, skip new evaluation logging, and direct feedback to the original record rather than giving each interaction distinct attribution.
 - Layer detection is based on demo table names, so custom-source runs would generally report an unknown layer.
-- An LLM semantic-review response that matches neither accepted decision format currently defaults to valid.
-- Maximum-attempt cost calculation can omit tokens from the latest correction call.
-- Runtime cost is terminal metadata but is not declared in the graph's typed state.
+- Empty results remain deterministically rejected, as required by the current architecture. Allowing legitimate empty answers requires a separate owner/product-architecture decision; Batch 2 does not change this rule.
 - Several older repository documents still describe removed graph presentation nodes and a formatted terminal-answer field.
 
 ## Deferred Production Work
@@ -65,6 +63,8 @@ Recent repository activity completed custom-source validation and activation and
 
 ## Current Validation / Test Status
 
+- Batch 2 deterministic verification: 30 semantic-validation tests and 17 graph/retry/accounting tests pass; the full suite passes 354 tests and 2 subtests with no failures/skips. Tests exercise the real graph and executor with fake model/database I/O, assert exact executions/attempts/token totals/cost on every terminal path, preserve zero-row rejection, and verify that explanations only follow recognized positive validation. See `eval/BATCH2_VERIFICATION.md` for commands and live outcomes.
+- Batch 2 live TPC-H evaluation (2026-09-25, gpt-4o): 10/13, unchanged from Batch 1. All ten answerable results and terminal verification checks passed; the same three geography cases failed layer selection. Each answerable case executed once; all three out-of-range cases executed zero times. Average executions per question: 0.77; estimated cost: $0.3112. Per-case fields are recorded in `eval/BATCH2_VERIFICATION.md`.
 - The repository contains a 13-case live evaluation suite for four failure modes: wrong data layer, wrong join path, wrong metric formula, and out-of-range handling.
 - Evaluation scoring compares complete frozen TPC-H sf=0.1 results for all ten answerable cases, separately reports independent result correctness and terminal verification, and requires both plus the expected physical-table layer for a pass. The three out-of-range cases use a separate early-termination state contract. Invalid result shapes/types/statuses fail explicitly; invalid golden contracts fail preflight before live execution. Runs retain the shared graph runner and logger.
 - The evaluator-only SQLGlot layer check resolves physical table references through CTE scopes and rejects text-only matches, unknown sources, and mixed aggregate/fact usage. Application/custom-source layer logging remains unchanged. Frozen reference SQL, provenance, tolerance rationale, and explicit generation/check commands live under `eval/fixtures/` and `eval/golden.py`. Ten base-fact case checks and eight distinct aggregate cross-checks pass under DuckDB 1.5.4. Owner review of reference SQL/tolerances remains pending. TPC-H contains no cancelled (`C`) orders, so these fixtures cannot verify cancellation-filter enforcement.
@@ -75,6 +75,7 @@ Recent repository activity completed custom-source validation and activation and
 
 ## Recently Completed Significant Work
 
+- Batch 2 runtime reliability: semantic decisions use a strict whole-response parser and fail safely on malformed/ambiguous output while retaining usage. Reflection returns only SQL and usage; the graph execution node executes once per attempt. The configured maximum is total SQL executions (initial attempt 1, corrections 2/3; out-of-range 0). A shared terminal graph node calculates declared `cost_usd` from final token totals using `utils.compute_cost`; the runner retains only its documented missing-cost fallback. No empty-result, metric/layer prompt, model, or evaluator-contract changes were made.
 - Hardened the evaluation judge without changing runtime orchestration: full-result golden contracts, explicit terminal verification, evaluator-local physical-table layer checks, malformed-output diagnostics, offline adversarial/positive controls, and availability-gated reference freshness checks. Normal tests and live evaluation never regenerate fixtures. Pre-merge corrections allow extra output columns by default (exact_schema opt-in), use case-insensitive explicit aliases with narrow key aliases, permit half-cent revenue/AOV rounding while keeping counts exact, and hash result contracts alongside canonical query provenance.
 - Added the custom database setup foundation, read-only DuckDB and SQLite connectors, schema discovery, catalog generation/review, and persistent layer classifications.
 - Added deterministic pipeline/dashboard SQL import, including separate metrics for multiple aliased aggregate expressions. Added dbt manifest v10-v11 import that populates layered ADR-010 entities, dimensions, measures, and metrics, resolves direction from declared relationship signals, and requires analyst confirmation when direction remains unresolved. Metric imports write metric definitions only; table-catalog ownership remains exclusively with Data Source setup.

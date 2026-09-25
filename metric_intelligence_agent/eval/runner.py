@@ -38,7 +38,7 @@ def run_question(
         "conversation_history": conversation_history or [],
         "sql": "",
         "out_of_range": False,
-        "attempt": 1,
+        "attempt": 0,
         "success": False,
         "data": None,
         "error": "",
@@ -63,14 +63,13 @@ def run_question(
     if final_state is None:
         raise RuntimeError("Graph produced no output")
 
-    # cost_usd is terminal metadata rather than part of AgentState.
-    final_state.setdefault(
-        "cost_usd",
-        compute_cost(
+    # The production graph finalizes cost. Preserve the accepted runner fallback
+    # only for a graph that omits it; never recompute/override a supplied cost.
+    if "cost_usd" not in final_state:
+        final_state["cost_usd"] = compute_cost(
             final_state["total_input_tokens"],
             final_state["total_output_tokens"],
-        ),
-    )
+        )
     run_id = (
         log_run(eval_conn, final_state, response_time_ms, run_type)
         if log

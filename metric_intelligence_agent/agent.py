@@ -238,61 +238,11 @@ def run_sql(conn, sql):
         }
 
 
-def reflect_sql(conn, context, question, sql, error, attempt, openai_client=None):
+def reflect_sql(context, question, sql, error, openai_client=None):
+    """Return corrected SQL and model usage without executing it.
+
+    The graph owns the execution budget, attempt number, and execution itself.
     """
-    Rewrite failed SQL using the LLM, run it, and return the execution result.
-
-    Args:
-        conn: Active DuckDB connection.
-        context: Structured context string from load_context().
-        question: Original plain English user question.
-        sql: SQL from the previous failed or semantically wrong attempt.
-        error: Description of the technical or semantic problem.
-        attempt: Current attempt number, starting at 1 after a failed attempt.
-
-    Returns:
-        A consistent dict shape:
-            Success:
-                {
-                    "success": True,
-                    "sql": sql,
-                    "data": DataFrame,
-                    "error": "",
-                    "attempts": int,
-                    "message": "",
-                    "input_tokens": int,
-                    "output_tokens": int,
-                }
-            Failure:
-                {
-                    "success": False,
-                    "sql": sql,
-                    "data": None,
-                    "error": str,
-                    "attempts": int,
-                    "message": (
-                        "Maximum reflection attempts reached. Could not "
-                        "generate valid SQL for this question."
-                    ),
-                    "input_tokens": int,
-                    "output_tokens": int,
-                }
-    """
-    if attempt >= MAX_ATTEMPTS:
-        return {
-            "success": False,
-            "sql": sql,
-            "data": None,
-            "error": error,
-            "attempts": attempt,
-            "message": (
-                "Maximum reflection attempts reached. Could not generate valid "
-                "SQL for this question."
-            ),
-            "input_tokens": 0,
-            "output_tokens": 0,
-        }
-
     system_message = _build_sql_system_message("fixes", context)
     user_message = (
         "The following SQL failed to return a correct result.\n\n"
@@ -313,12 +263,30 @@ def reflect_sql(conn, context, question, sql, error, attempt, openai_client=None
     output_tokens = response.usage.completion_tokens
     new_sql = response.choices[0].message.content.strip()
     new_sql = re.sub(r"```[a-zA-Z]*", "", new_sql).replace("```", "").strip()
-    result = run_sql(conn, new_sql)
-    result["attempts"] = attempt + 1
-    result["message"] = ""
-    result["input_tokens"] = input_tokens
-    result["output_tokens"] = output_tokens
-    return result
+    return {
+        "sql": new_sql,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+    }
+
+
+def parse_validation_response(content):
+    """Recognize only an explicit positive decision or a complete negative form."""
+    invalid = (
+        False,
+        "Semantic validator returned an invalid or unrecognized response; "
+        "expected VALID: yes or VALID: no followed by REASON: <reason>.",
+    )
+    if not isinstance(content, str):
+        return invalid
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if len(lines) == 1 and re.fullmatch(r"VALID[ \t]*:[ \t]*yes", lines[0], re.I):
+        return True, ""
+    if len(lines) == 2 and re.fullmatch(r"VALID[ \t]*:[ \t]*no", lines[0], re.I):
+        reason = re.fullmatch(r"REASON[ \t]*:[ \t]*(.+)", lines[1], re.I)
+        if reason and reason[1].strip() and not re.search(r"\bVALID\s*:", reason[1], re.I):
+            return False, reason[1].strip()
+    return invalid
 
 
 def validate_result(question, sql, df, context, openai_client=None):
@@ -413,25 +381,10 @@ def validate_result(question, sql, df, context, openai_client=None):
     )
     input_tokens = response.usage.prompt_tokens
     output_tokens = response.usage.completion_tokens
-    content = response.choices[0].message.content.strip()
-    if "VALID: yes" in content:
-        return {
-            "valid": True,
-            "reason": "",
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-        }
-    if "VALID: no" in content:
-        reason = content.split("REASON:", 1)[1].strip() if "REASON:" in content else ""
-        return {
-            "valid": False,
-            "reason": reason,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-        }
+    valid, reason = parse_validation_response(response.choices[0].message.content)
     return {
-        "valid": True,
-        "reason": "",
+        "valid": valid,
+        "reason": reason,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
     }

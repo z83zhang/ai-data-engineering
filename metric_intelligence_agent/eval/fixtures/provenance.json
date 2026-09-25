@@ -10,7 +10,7 @@
   "source_sha256": {
     "eval/fixtures/reference_queries.json": "d91414a1ceb05c4ebfd4127ca4be11b24f5620ed857024aaaa14035ab3b6c62a",
     "eval/test_suite.py": "cbb12d43480799504b4d6aebdbbbf3254a431a3be75b712f4ec1e7d7dd8e367b",
-    "agent.py": "b7d680b508c7784e088a4d84a973216f832e727ce9bec49f3c758db2712b3020",
+    "agent.py": "f8d29936bdb1d2a86d05c81872ced31fb51eec54c46e1c27c86c75597fdf42ac",
     "context/metric_definitions.md": "456e95cfc356da3ca8019184650e1b0dc490d99970f2091ebcc031901468db51",
     "context/schema.sql": "04560501d0fc5ddba70e4d520ef165185308f4cd9b9b0d5bcf6a58ca0f9044ac",
     "context/table_catalog.md": "852a6d0ca25b4eed088c8a9954d3dabb23997c0ee62c89017462a56b63ca3448"
@@ -25,5 +25,17 @@
   "review": "Implementation checked against bundled metric definitions; owner review pending. Reference SQL authored independently of runtime SQL generation.",
   "tolerances": "Counts exact. Revenue/AOV: absolute tolerance 0.005, relative tolerance 0; accepts rounding to two decimals without a magnitude-dependent allowance.",
   "limitations": "No C orders: results cannot test cancellation-exclusion enforcement. Supplier SQL includes the global exclusion despite its omission in the bundled supplier example. No supplier aggregate exists.",
-  "fixture_sha256": "6bc496542a91e51a58cc36ef00f1619646829ceee7be29651f3bca11bd74b08c"
+  "fixture_sha256": "6bc496542a91e51a58cc36ef00f1619646829ceee7be29651f3bca11bd74b08c",
+  "runtime_source_review": {
+    "baseline_revision": "f671d024b5173aa716421403e5100ec229117089",
+    "reason": "Batch 2 changes only semantic response parsing and reflection execution ownership in agent.py. Demo setup, context loading, generation/explanation prompts, and reference answers are unchanged.",
+    "unchanged_functions_verified": [
+      "setup_database",
+      "get_date_range",
+      "load_context",
+      "generate_sql",
+      "explain_result",
+      "_build_sql_system_message"
+    ]
+  }
 }
