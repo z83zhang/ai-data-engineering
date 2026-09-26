@@ -142,6 +142,11 @@ def compare_result(data, contract, rows):
             accepted = {alias.casefold() for alias in [name, *spec.get("aliases", [])]}
             matches = [column for column in data.columns
                        if isinstance(column, str) and column.casefold() in accepted]
+            # A sole scalar has one structural role even without a named alias.
+            # Never guess among columns, rows, grouped keys, or multiple values.
+            if (not matches and not contract["keys"]
+                    and len(contract["values"]) == 1 and data.shape == (1, 1)):
+                matches = [data.columns[0]]
             if len(matches) != 1:
                 raise ValueError(f"Missing or ambiguous column: {name}")
             mapping[name] = matches[0]

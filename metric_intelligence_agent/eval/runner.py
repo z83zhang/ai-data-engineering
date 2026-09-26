@@ -21,7 +21,7 @@ def run_question(
         graph: Compiled LangGraph graph from build_graph().
         eval_conn: Active eval.db connection from setup_eval_db().
         question: Plain English analytics question.
-        run_type: Either "adhoc" for manual runs or "eval" for suite runs.
+        run_type: "adhoc", TPC-H "eval", or reviewed "custom_eval" runs.
         verbose: Whether to print question, reflection, answer, and cost output.
         conversation_history: Optional list of previous user questions.
         log: Whether to write the terminal run to eval.db. Setup validation uses

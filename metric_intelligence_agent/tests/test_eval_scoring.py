@@ -9,13 +9,62 @@ import pandas as pd
 import pytest
 
 from eval.scoring import (
-    ContractError, evaluation_layer, load_golden, score_result, validate_contract,
+    ContractError, compare_result, evaluation_layer, load_golden, score_result, validate_contract,
 )
 from eval.test_suite import TEST_CASES
 
 
 GOLDEN = load_golden()
 ANSWERABLE = TEST_CASES[:10]
+
+
+@pytest.fixture
+def scalar_contract():
+    return {"keys": {}, "values": {
+        "total": {"type": "integer", "aliases": ["total_count"], "abs_tol": 0, "rel_tol": 0}
+    }}
+
+
+@pytest.mark.parametrize("column", ["count_star()", "COUNT(*)", 0])
+@pytest.mark.parametrize("exact_schema", [False, True])
+def test_unnamed_single_scalar_matches_by_structure(scalar_contract, column, exact_schema):
+    scalar_contract["exact_schema"] = exact_schema
+    assert compare_result(pd.DataFrame({column: [7]}), scalar_contract, [{"total": 7}]) == (True, [])
+
+
+@pytest.mark.parametrize("value", [8, 7.1, "7", None, float("inf")])
+def test_scalar_fallback_preserves_value_and_type_checks(scalar_contract, value):
+    assert not compare_result(pd.DataFrame({"count_star()": [value]}), scalar_contract, [{"total": 7}])[0]
+
+
+@pytest.mark.parametrize("data", [
+    pd.DataFrame({"x": [7], "y": [7]}),
+    pd.DataFrame({"x": [7, 7]}),
+    pd.DataFrame({"x": []}),
+])
+def test_scalar_fallback_rejects_other_shapes(scalar_contract, data):
+    matched, reasons = compare_result(data, scalar_contract, [{"total": 7}])
+    assert not matched and "Missing or ambiguous column" in reasons[0]
+
+
+def test_scalar_fallback_never_supplies_multiple_value_roles(scalar_contract):
+    scalar_contract["values"]["second"] = {"type": "integer", "abs_tol": 0, "rel_tol": 0}
+    assert not compare_result(pd.DataFrame({"x": [7]}), scalar_contract, [{"total": 7, "second": 7}])[0]
+
+
+def test_scalar_fallback_never_supplies_grouped_roles(scalar_contract):
+    scalar_contract["keys"] = {"status": {"type": "text"}}
+    rows = [{"status": "completed", "total": 7}]
+    assert not compare_result(pd.DataFrame({"x": [7]}), scalar_contract, rows)[0]
+    assert not compare_result(pd.DataFrame({"status": ["completed"], "x": [7]}), scalar_contract, rows)[0]
+    assert compare_result(pd.DataFrame({"status": ["completed"], "TOTAL_COUNT": [7]}), scalar_contract, rows) == (True, [])
+
+
+def test_explicit_aliases_keep_precedence_and_ambiguity_checks(scalar_contract):
+    rows = [{"total": 7}]
+    assert compare_result(pd.DataFrame({"TOTAL_COUNT": [7], "extra": [99]}), scalar_contract, rows) == (True, [])
+    assert not compare_result(pd.DataFrame({"TOTAL_COUNT": [99], "extra": [7]}), scalar_contract, rows)[0]
+    assert not compare_result(pd.DataFrame({"total": [7], "total_count": [7]}), scalar_contract, rows)[0]
 
 
 def frame(case):

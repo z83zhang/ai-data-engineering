@@ -46,6 +46,11 @@ If either fails, agent rewrites SQL automatically.
 
 The live evaluation suite contains 13 cases covering four failure modes: wrong data layer, wrong join path, wrong metric formula, and out-of-range handling. See [PROJECT_STATE.md](PROJECT_STATE.md) for the current verification status. Evaluation runs are logged to `eval.db` with token counts, latency, cost, and source-aware layer reporting. Query graphs resolve `OPENAI_MODEL` at construction (default `gpt-4o`) and use it for generation, correction, validation, and explanation. `query_log.model` records that resolved name; `query_log.attempt_trace` stores a JSON list of executed SQL attempts and their outcomes/token usage. Opening an older store adds these two nullable columns idempotently and preserves historical rows. Existing cost estimates still use the fixed rates in `utils.py`; model overrides do not select a different pricing schedule. See [Batch 3 verification](eval/BATCH3_VERIFICATION.md) for trace fields and environment details.
 
+### Private custom-source evaluation
+
+`python -m eval.run_custom_eval --db <file.duckdb> --context-dir <reviewed-context> --suite <reviewed-suite.json>` runs an independently approved local suite through the production graph. `python -m eval.custom_golden --candidate ... --output <new-file.json>` produces an unapproved candidate from owner-written references; `--check` verifies freshness without model calls or writes. See [the custom evaluation contract and owner steps](eval/CUSTOM_EVAL.md). Keep private packages/reports under gitignored `local_eval/` or outside the repository. This does not establish real jaffle_shop accuracy until its owner supplies and approves the inputs. TPC-H remains the separate `python -m eval.run_eval` workflow.
+
+
 ## Real Output Examples
 
 Example 1: successful query

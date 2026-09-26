@@ -14,3 +14,6 @@ northwind.db
 jaffle_shop.duckdb
 jaffle_shop_duckdb/
 jaffle-shop/
+
+# Private custom evaluation packages and reports
+/local_eval/

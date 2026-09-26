@@ -47,15 +47,15 @@ def log_run(conn, final_state, response_time_ms, run_type="adhoc"):
         conn: Active DuckDB connection returned by setup_eval_db().
         final_state: Final LangGraph state dict for one question.
         response_time_ms: End-to-end latency in milliseconds.
-        run_type: Either "adhoc" for manual runs or "eval" for evaluation runs.
+        run_type: "adhoc", TPC-H "eval", or reviewed "custom_eval" runs.
 
     Raises:
-        ValueError: If run_type is not "adhoc" or "eval".
+        ValueError: If run_type is not "adhoc", "eval", or "custom_eval".
 
     The caller owns connection lifetime; this function does not close conn.
     """
-    if run_type not in ("adhoc", "eval"):
-        raise ValueError(f"run_type must be 'adhoc' or 'eval', got '{run_type}'")
+    if run_type not in ("adhoc", "eval", "custom_eval"):
+        raise ValueError(f"run_type must be 'adhoc', 'eval', or 'custom_eval', got '{run_type}'")
 
     out_of_range = final_state["out_of_range"]
     if out_of_range:
